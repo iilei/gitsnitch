@@ -114,8 +114,19 @@ pub fn select_assertions_from_presets(
 
 fn clone_condition(condition: &config::Condition) -> config::Condition {
     match condition {
-        config::Condition::MsgMatch(value) => {
-            config::Condition::MsgMatch(config::MsgMatchCondition {
+        config::Condition::MsgMatchAny(value) => {
+            config::Condition::MsgMatchAny(config::MsgMatchCondition {
+                name: value.name.clone(),
+                mode: match value.mode {
+                    config::MsgMode::Raw => config::MsgMode::Raw,
+                    config::MsgMode::Title => config::MsgMode::Title,
+                    config::MsgMode::Body => config::MsgMode::Body,
+                },
+                patterns: value.patterns.clone(),
+            })
+        }
+        config::Condition::MsgMatchNone(value) => {
+            config::Condition::MsgMatchNone(config::MsgMatchCondition {
                 name: value.name.clone(),
                 mode: match value.mode {
                     config::MsgMode::Raw => config::MsgMode::Raw,

@@ -174,7 +174,8 @@ pub struct ConditionContainer {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Condition {
-    MsgMatch(MsgMatchCondition),
+    MsgMatchAny(MsgMatchCondition),
+    MsgMatchNone(MsgMatchCondition),
     DiffMatchAny(DiffMatchCondition),
     DiffMatchNone(DiffMatchCondition),
     BranchMatch(BranchMatchCondition),
@@ -349,7 +350,7 @@ fn validate_condition_patterns(
     condition_field: &str,
 ) -> Result<(), ConfigError> {
     let patterns = match condition {
-        Condition::MsgMatch(cond) => Some(&cond.patterns),
+        Condition::MsgMatchAny(cond) | Condition::MsgMatchNone(cond) => Some(&cond.patterns),
         Condition::DiffMatchAny(cond) | Condition::DiffMatchNone(cond) => Some(&cond.patterns),
         Condition::BranchMatch(cond) => Some(&cond.patterns),
         Condition::ThresholdCompare(_) => None,

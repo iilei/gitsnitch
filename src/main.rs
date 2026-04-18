@@ -5,9 +5,10 @@ use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::process::{self, Command};
 
+use chrono::Utc;
 use clap::{ArgAction, Parser};
 use minijinja::Environment;
-use serde_json::json;
+use serde::Serialize;
 use thiserror::Error;
 
 mod config;
@@ -136,8 +137,8 @@ const REMAP_SUPPORTED_KEYS: &[&str] = &[
 ];
 
 fn check_git_installed() -> Result<(), AppError> {
-    match Command::new("git").arg("--version").status() {
-        Ok(status) if status.success() => Ok(()),
+    match Command::new("git").arg("--version").output() {
+        Ok(output) if output.status.success() => Ok(()),
         Ok(_) => Err(AppError::Exit(ExitError {
             code: EXIT_INTERNAL_DEPENDENCY,
             message: "git is installed but not functioning correctly".to_owned(),
@@ -403,21 +404,23 @@ fn read_config_content(config_source: &ConfigSource) -> Result<Option<String>, A
             })?;
             Ok(Some(content))
         }
-        ConfigSource::Stdin => {
-            let mut buffer = String::new();
-            io::stdin().read_to_string(&mut buffer).map_err(|error| {
-                AppError::Message(format!("failed to read config from stdin: {error}"))
-            })?;
-
-            if buffer.trim().is_empty() {
-                return Err(AppError::Message(
-                    "--config - was provided, but stdin was empty".to_owned(),
-                ));
-            }
-
-            Ok(Some(buffer))
-        }
+        ConfigSource::Stdin => read_config_content_from_reader(io::stdin()),
     }
+}
+
+fn read_config_content_from_reader<R: Read>(mut reader: R) -> Result<Option<String>, AppError> {
+    let mut buffer = String::new();
+    reader
+        .read_to_string(&mut buffer)
+        .map_err(|error| AppError::Message(format!("failed to read config from stdin: {error}")))?;
+
+    if buffer.trim().is_empty() {
+        return Err(AppError::Message(
+            "--config - was provided, but stdin was empty".to_owned(),
+        ));
+    }
+
+    Ok(Some(buffer))
 }
 
 fn run(args: &Args) -> Result<(), AppError> {
@@ -466,6 +469,7 @@ fn run(args: &Args) -> Result<(), AppError> {
     let mut assertions: Vec<config::Assertion> = Vec::new();
     let mut history = config::History::default();
     let mut severity_bands = config::SeverityBands::default();
+    let mut config_custom_meta = config::CustomMeta::new();
     let config_violation_severity_as_exit_code = if let Some(content) = config_content {
         let source_path = match &resolved_source {
             ConfigSource::File(p) => Some(p.as_path()),
@@ -475,6 +479,7 @@ fn run(args: &Args) -> Result<(), AppError> {
         history = cfg.history.unwrap_or_default();
         assertions = cfg.assertions;
         severity_bands = cfg.severity_bands;
+        config_custom_meta = cfg.custom_meta;
         Some(cfg.violation_severity_as_exit_code)
     } else {
         None
@@ -488,16 +493,23 @@ fn run(args: &Args) -> Result<(), AppError> {
         args.violation_severity_as_exit_code,
         config_violation_severity_as_exit_code,
     );
-    let collected_violations =
+    let collected =
         violations::collect_violations(&lint_scope, &assertions, &history, args.verbose)?;
-    let violation_severities = collected_violations
+    let violation_severities = collected
+        .violations
         .iter()
         .map(|violation| violation.severity)
         .collect::<Vec<_>>();
 
-    if !collected_violations.is_empty() {
-        print_violations(&collected_violations, &severity_bands)?;
-    }
+    let api_version_str = "pre";
+    emit_json_report(
+        &collected.violations,
+        &collected.commits_checked,
+        &severity_bands,
+        effective_violation_severity_as_exit_code,
+        &config_custom_meta,
+        api_version_str,
+    )?;
 
     let violation_exit_code = resolve_violation_exit_code(
         effective_violation_severity_as_exit_code,
@@ -543,45 +555,26 @@ const fn severity_band_label(severity: u8, bands: &config::SeverityBands) -> &'s
     }
 }
 
-fn render_template(
+fn render_banner_template(
     template: &str,
-    violation: &violations::Violation,
-    severity_band: &str,
+    violation_payload: &serde_json::Value,
+    all_violations_payloads: &[serde_json::Value],
 ) -> Result<Option<String>, AppError> {
     if template.trim().is_empty() {
         return Ok(None);
     }
 
     let environment = Environment::new();
-    let text = format!(
-        "[{severity_band}:{}] {}",
-        violation.severity, violation.assertion_alias
-    );
-    let payload = json!({
-        "text": text,
-        "alias": violation.assertion_alias,
-        "description": violation.assertion_description,
-        "severity": violation.severity,
-        "severity_band": severity_band,
-        "commit_sha": violation.commit_sha,
-        "commit_title": violation.commit_title,
-    });
-
     let rendered = environment
         .render_str(
             template,
             minijinja::context!(
-                violation => &payload,
-                violations => std::slice::from_ref(&payload),
-                violation_banners => std::slice::from_ref(&payload),
+                violation => violation_payload,
+                violations => all_violations_payloads,
+                violation_banners => all_violations_payloads,
             ),
         )
-        .map_err(|error| {
-            AppError::Message(format!(
-                "failed to render assertion template '{}': {error}",
-                violation.assertion_alias
-            ))
-        })?;
+        .map_err(|error| AppError::Message(format!("failed to render banner template: {error}")))?;
 
     if rendered.trim().is_empty() {
         return Ok(None);
@@ -590,26 +583,243 @@ fn render_template(
     Ok(Some(rendered))
 }
 
-fn print_violations(
+#[derive(Serialize)]
+struct ViolationContextItem<'a> {
+    assertion_alias: &'a str,
+    commit_sha: &'a str,
+    commit_sha_short: &'a str,
+    commit_title: &'a str,
+    description: &'a str,
+    severity: u8,
+    severity_band: &'a str,
+    text: String,
+    banner: &'a str,
+    hint: &'a str,
+}
+
+#[derive(Serialize)]
+struct ViolationBandItem<'a> {
+    assertion_alias: &'a str,
+    commit_sha: &'a str,
+    commit_sha_short: &'a str,
+    commit_title: &'a str,
+}
+
+#[derive(Serialize)]
+struct ViolationsByBand<'a> {
+    #[serde(rename = "Fatal")]
+    fatal: Vec<ViolationBandItem<'a>>,
+    #[serde(rename = "Error")]
+    error: Vec<ViolationBandItem<'a>>,
+    #[serde(rename = "Warning")]
+    warning: Vec<ViolationBandItem<'a>>,
+    #[serde(rename = "Information")]
+    information: Vec<ViolationBandItem<'a>>,
+}
+
+#[derive(Serialize)]
+struct ViolationBanner<'a> {
+    assertion_alias: &'a str,
+    output: String,
+    hint: &'a str,
+    severity: u8,
+    severity_band: &'a str,
+    text: String,
+    description: &'a str,
+}
+
+#[derive(Serialize)]
+struct JsonReport<'a> {
+    schema_version: &'a str,
+    generated_at: String,
+    gitsnitch_version: &'a str,
+    violation_severity_as_exit_code: bool,
+    custom_meta: &'a config::CustomMeta,
+    commits_checked: &'a [String],
+    commits_violating: Vec<&'a str>,
+    violation_banners: Vec<ViolationBanner<'a>>,
+    violations: ViolationsByBand<'a>,
+}
+
+const BAND_ORDER: &[&str] = &["Fatal", "Error", "Warning", "Information"];
+
+fn collect_commits_violating<'a>(
+    commits_checked: &'a [String],
     collected_violations: &[violations::Violation],
+) -> Vec<&'a str> {
+    commits_checked
+        .iter()
+        .filter(|sha| collected_violations.iter().any(|v| &v.commit_sha == *sha))
+        .map(String::as_str)
+        .collect()
+}
+
+fn build_violation_context_entries<'a>(
+    collected_violations: &'a [violations::Violation],
     severity_bands: &config::SeverityBands,
-) -> Result<(), AppError> {
-    for violation in collected_violations {
-        let severity_band = severity_band_label(violation.severity, severity_bands);
-        eprintln!(
-            "violation [{severity_band}:{}] {} ({})",
-            violation.severity, violation.assertion_alias, violation.commit_sha
-        );
+) -> Vec<ViolationContextItem<'a>> {
+    collected_violations
+        .iter()
+        .map(|v| {
+            let severity_band = severity_band_label(v.severity, severity_bands);
+            let sha_short = v.commit_sha.get(..7).unwrap_or(v.commit_sha.as_str());
+            ViolationContextItem {
+                assertion_alias: v.assertion_alias.as_str(),
+                commit_sha: v.commit_sha.as_str(),
+                commit_sha_short: sha_short,
+                commit_title: v.commit_title.as_str(),
+                description: v.assertion_description.as_str(),
+                severity: v.severity,
+                severity_band,
+                text: format!("[{severity_band}:{}] {}", v.severity, v.assertion_alias),
+                banner: v.banner.as_str(),
+                hint: v.hint.as_str(),
+            }
+        })
+        .collect()
+}
 
-        if let Some(rendered_banner) = render_template(&violation.banner, violation, severity_band)?
+fn group_entries_by_band<'a>(
+    entries: &'a [ViolationContextItem<'a>],
+) -> BTreeMap<&'a str, Vec<&'a ViolationContextItem<'a>>> {
+    let mut by_band: BTreeMap<&str, Vec<&ViolationContextItem<'_>>> = BTreeMap::new();
+    for band in BAND_ORDER {
+        by_band.insert(*band, Vec::new());
+    }
+    for entry in entries {
+        by_band.entry(entry.severity_band).or_default().push(entry);
+    }
+
+    // Strict descending numeric severity within each band.
+    // Tie-breakers keep ordering deterministic across runs.
+    for entries_in_band in by_band.values_mut() {
+        entries_in_band.sort_by(|left, right| {
+            right
+                .severity
+                .cmp(&left.severity)
+                .then_with(|| left.assertion_alias.cmp(right.assertion_alias))
+                .then_with(|| left.commit_sha.cmp(right.commit_sha))
+        });
+    }
+
+    by_band
+}
+
+fn serialize_violation_payloads(
+    entries: &[ViolationContextItem<'_>],
+) -> Result<Vec<serde_json::Value>, AppError> {
+    entries
+        .iter()
+        .map(|entry| {
+            serde_json::to_value(entry).map_err(|error| {
+                AppError::Message(format!(
+                    "failed to serialize violation context for banner template: {error}"
+                ))
+            })
+        })
+        .collect::<Result<Vec<_>, AppError>>()
+}
+
+fn build_violation_banners<'a>(
+    by_band: &BTreeMap<&str, Vec<&'a ViolationContextItem<'a>>>,
+    all_violations_payloads: &[serde_json::Value],
+) -> Result<Vec<ViolationBanner<'a>>, AppError> {
+    let mut seen_assertion_aliases: Vec<&str> = Vec::new();
+    let mut violation_banners: Vec<ViolationBanner<'_>> = Vec::new();
+
+    for band in BAND_ORDER {
+        for entry in by_band
+            .get(*band)
+            .map_or(&[] as &[&ViolationContextItem<'_>], Vec::as_slice)
         {
-            eprintln!("{rendered_banner}");
-        }
+            if seen_assertion_aliases.contains(&entry.assertion_alias) {
+                continue;
+            }
+            seen_assertion_aliases.push(entry.assertion_alias);
 
-        if let Some(rendered_hint) = render_template(&violation.hint, violation, severity_band)? {
-            eprintln!("hint: {rendered_hint}");
+            let violation_payload = serde_json::to_value(entry).map_err(|error| {
+                AppError::Message(format!(
+                    "failed to serialize current violation for banner template: {error}"
+                ))
+            })?;
+
+            let rendered_text =
+                render_banner_template(entry.banner, &violation_payload, all_violations_payloads)?;
+
+            violation_banners.push(ViolationBanner {
+                assertion_alias: entry.assertion_alias,
+                output: rendered_text.unwrap_or_default(),
+                hint: entry.hint,
+                severity: entry.severity,
+                severity_band: band,
+                text: entry.text.clone(),
+                description: entry.description,
+            });
         }
     }
+
+    Ok(violation_banners)
+}
+
+fn make_band_items<'a>(
+    by_band: &BTreeMap<&str, Vec<&'a ViolationContextItem<'a>>>,
+    band: &str,
+) -> Vec<ViolationBandItem<'a>> {
+    by_band
+        .get(band)
+        .map_or(&[] as &[&ViolationContextItem<'_>], Vec::as_slice)
+        .iter()
+        .map(|entry| ViolationBandItem {
+            assertion_alias: entry.assertion_alias,
+            commit_sha: entry.commit_sha,
+            commit_sha_short: entry.commit_sha_short,
+            commit_title: entry.commit_title,
+        })
+        .collect()
+}
+
+fn build_violations_by_band<'a>(
+    by_band: &BTreeMap<&str, Vec<&'a ViolationContextItem<'a>>>,
+) -> ViolationsByBand<'a> {
+    ViolationsByBand {
+        fatal: make_band_items(by_band, "Fatal"),
+        error: make_band_items(by_band, "Error"),
+        warning: make_band_items(by_band, "Warning"),
+        information: make_band_items(by_band, "Information"),
+    }
+}
+
+fn emit_json_report(
+    collected_violations: &[violations::Violation],
+    commits_checked: &[String],
+    severity_bands: &config::SeverityBands,
+    effective_violation_severity_as_exit_code: bool,
+    custom_meta: &config::CustomMeta,
+    api_version_str: &str,
+) -> Result<(), AppError> {
+    let commits_violating = collect_commits_violating(commits_checked, collected_violations);
+    let entries = build_violation_context_entries(collected_violations, severity_bands);
+    let by_band = group_entries_by_band(&entries);
+    let all_violations_payloads = serialize_violation_payloads(&entries)?;
+    let violation_banners = build_violation_banners(&by_band, &all_violations_payloads)?;
+    let violations = build_violations_by_band(&by_band);
+
+    let report = JsonReport {
+        schema_version: api_version_str,
+        generated_at: Utc::now().to_rfc3339(),
+        gitsnitch_version: env!("CARGO_PKG_VERSION"),
+        violation_severity_as_exit_code: effective_violation_severity_as_exit_code,
+        custom_meta,
+        commits_checked,
+        commits_violating,
+        violation_banners,
+        violations,
+    };
+
+    let serialized = serde_json::to_string(&report).map_err(|error| {
+        AppError::Message(format!("failed to serialize report as JSON: {error}"))
+    })?;
+    println!("{serialized}");
 
     Ok(())
 }
@@ -648,13 +858,15 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::{
-        AppError, Args, DEFAULT_ENV_PREFIX, autodiscover_config, check_is_repo_at,
-        git_repo_root_at, parse_remap_env_vars, remapped_or_prefixed_env_non_empty_with_lookup,
+        AppError, Args, ConfigSource, DEFAULT_ENV_PREFIX, autodiscover_config, check_is_repo_at,
+        git_repo_root_at, parse_remap_env_vars, read_config_content,
+        read_config_content_from_reader, remapped_or_prefixed_env_non_empty_with_lookup,
         severity_band_label, validate_env_resolution_mode,
     };
-    use crate::{config, violations};
+    use crate::config;
     use std::collections::BTreeMap;
     use std::fs;
+    use std::io::Cursor;
     use std::path::PathBuf;
     use std::process::Command;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -939,18 +1151,21 @@ mod tests {
 
     #[test]
     fn render_template_includes_violation_context_values() {
-        let violation = violations::Violation {
-            commit_sha: "abc123".to_owned(),
-            commit_title: "feat: add lint".to_owned(),
-            assertion_alias: "conventional-title".to_owned(),
-            assertion_description: "desc".to_owned(),
-            severity: 10,
-            banner: "title={{ violation.commit_title }} band={{ violation.severity_band }}"
-                .to_owned(),
-            hint: String::new(),
-        };
+        let payload = serde_json::json!({
+            "assertion_alias": "conventional-title",
+            "commit_sha": "abc123",
+            "commit_sha_short": "abc123",
+            "commit_title": "feat: add lint",
+            "description": "desc",
+            "severity": 10,
+            "severity_band": "Error",
+            "text": "[Error:10] conventional-title",
+        });
+        let template =
+            "title={{ violation.commit_title }} band={{ violation.severity_band }}".to_owned();
 
-        let result = super::render_template(&violation.banner, &violation, "Error");
+        let payloads = vec![payload.clone()];
+        let result = super::render_banner_template(&template, &payload, &payloads);
         let rendered = match result {
             Ok(Some(value)) => value,
             Ok(None) | Err(_) => String::new(),
@@ -961,23 +1176,116 @@ mod tests {
 
     #[test]
     fn render_template_supports_loop_over_violations() {
-        let violation = violations::Violation {
-            commit_sha: "abc123".to_owned(),
-            commit_title: "feat: add lint".to_owned(),
-            assertion_alias: "conventional-title".to_owned(),
-            assertion_description: "desc".to_owned(),
-            severity: 10,
-            banner: "{% for v in violations %}{{ v.alias }}{% endfor %}".to_owned(),
-            hint: String::new(),
-        };
+        let payload = serde_json::json!({
+            "assertion_alias": "conventional-title",
+            "commit_sha": "abc123",
+            "commit_sha_short": "abc123",
+            "commit_title": "feat: add lint",
+            "description": "desc",
+            "severity": 10,
+            "severity_band": "Error",
+            "text": "[Error:10] conventional-title",
+        });
+        let template = "{% for v in violations %}{{ v.assertion_alias }}{% endfor %}".to_owned();
 
-        let result = super::render_template(&violation.banner, &violation, "Error");
+        let payloads = vec![payload.clone()];
+        let result = super::render_banner_template(&template, &payload, &payloads);
         let rendered = match result {
             Ok(Some(value)) => value,
             Ok(None) | Err(_) => String::new(),
         };
 
         assert_eq!(rendered, "conventional-title");
+    }
+
+    #[test]
+    fn read_config_content_returns_none_for_auto_discover() {
+        let result = read_config_content(&ConfigSource::AutoDiscover);
+        assert!(result.is_ok());
+
+        let content = result.unwrap_or_default();
+        assert!(content.is_none());
+    }
+
+    #[test]
+    fn read_config_content_reads_file_content() {
+        let since_epoch = SystemTime::now().duration_since(UNIX_EPOCH);
+        assert!(since_epoch.is_ok());
+        let Ok(duration) = since_epoch else {
+            return;
+        };
+
+        let root = std::env::temp_dir().join(format!(
+            "gitsnitch-read-config-file-{}-{}",
+            std::process::id(),
+            duration.as_nanos()
+        ));
+        let create_dir = fs::create_dir_all(&root);
+        assert!(create_dir.is_ok());
+
+        let config_path = root.join(".gitsnitch.toml");
+        let expected = "api_version = \"pre\"\n";
+        let write_result = fs::write(&config_path, expected);
+        assert!(write_result.is_ok());
+
+        let result = read_config_content(&ConfigSource::File(config_path));
+        let _ = fs::remove_dir_all(&root);
+
+        assert!(result.is_ok());
+        let content = result.unwrap_or_default();
+        assert_eq!(content, Some(expected.to_owned()));
+    }
+
+    #[test]
+    fn read_config_content_returns_error_when_file_does_not_exist() {
+        let since_epoch = SystemTime::now().duration_since(UNIX_EPOCH);
+        assert!(since_epoch.is_ok());
+        let Ok(duration) = since_epoch else {
+            return;
+        };
+
+        let missing_path = std::env::temp_dir().join(format!(
+            "gitsnitch-read-config-missing-{}-{}-missing.toml",
+            std::process::id(),
+            duration.as_nanos()
+        ));
+
+        let result = read_config_content(&ConfigSource::File(missing_path));
+        assert!(result.is_err());
+
+        let error_message = match result {
+            Err(AppError::Message(message)) => message,
+            Ok(_) | Err(_) => String::new(),
+        };
+
+        assert!(error_message.contains("failed to read config file"));
+    }
+
+    #[test]
+    fn read_config_content_from_reader_returns_error_when_stdin_is_blank() {
+        let stdin_data = Cursor::new("   \n\t");
+
+        let result = read_config_content_from_reader(stdin_data);
+        assert!(result.is_err());
+
+        let error_message = match result {
+            Err(AppError::Message(message)) => message,
+            Ok(_) | Err(_) => String::new(),
+        };
+
+        assert!(error_message.contains("stdin was empty"));
+    }
+
+    #[test]
+    fn read_config_content_from_reader_returns_ok_for_non_empty_stdin() {
+        let expected = "api_version = \"pre\"\n";
+        let stdin_data = Cursor::new(expected);
+
+        let result = read_config_content_from_reader(stdin_data);
+        assert!(result.is_ok());
+
+        let content = result.unwrap_or_default();
+        assert_eq!(content, Some(expected.to_owned()));
     }
 
     #[test]

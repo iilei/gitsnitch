@@ -25,7 +25,7 @@
       "must_satisfy": {
         "condition": {
           "name": "title-must-match",
-          "type": "msg_match",
+          "type": "msg_match_any",
           "mode": "title",
           "patterns": [
             "^(?i:feat|fix|docs|chore|refactor|test)(\\(.+\\))?: .+"
@@ -86,7 +86,7 @@
       "must_satisfy": {
         "condition": {
           "name": "body-contains-ticket",
-          "type": "msg_match",
+          "type": "msg_match_any",
           "mode": "body",
           "patterns": [
             "[A-Z]{2,10}-[0-9]+"
@@ -103,7 +103,7 @@
       "must_satisfy": {
         "condition": {
           "name": "raw-title-body-shape",
-          "type": "msg_match",
+          "type": "msg_match_any",
           "mode": "raw",
           "patterns": [
             "^[^\\n]+$|\\S[^\\n]*\\n\\n\\s*\\S+"
@@ -120,7 +120,7 @@
       "must_satisfy": {
         "condition": {
           "name": "body-contains-security-ack",
-          "type": "msg_match",
+          "type": "msg_match_any",
           "mode": "body",
           "patterns": [
             "(^|\\n)SAV-Ack-By: @.+"
@@ -175,7 +175,7 @@
       "must_satisfy": {
         "condition": {
           "name": "commit-msg-has-review-tag",
-          "type": "msg_match",
+          "type": "msg_match_any",
           "mode": "body",
           "patterns": [
             "(^|\\n)Reviewed-By: @.+"

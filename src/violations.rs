@@ -1,10 +1,11 @@
 use std::process::Command;
 
 use regex::Regex;
+use serde::Serialize;
 
 use crate::{AppError, LintScope, config};
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct Violation {
     pub commit_sha: String,
     pub commit_title: String,
@@ -13,6 +14,12 @@ pub struct Violation {
     pub severity: u8,
     pub banner: String,
     pub hint: String,
+}
+
+#[derive(Debug)]
+pub struct LintResult {
+    pub commits_checked: Vec<String>,
+    pub violations: Vec<Violation>,
 }
 
 #[derive(Debug)]
@@ -389,13 +396,21 @@ fn evaluate_condition(
     commit: &CommitContext,
 ) -> Result<bool, AppError> {
     match condition {
-        config::Condition::MsgMatch(cond) => {
+        config::Condition::MsgMatchAny(cond) => {
             let haystack = match cond.mode {
                 config::MsgMode::Raw => commit.raw_message.as_str(),
                 config::MsgMode::Title => commit.title.as_str(),
                 config::MsgMode::Body => commit.body.as_str(),
             };
             matches_any_regex(&cond.patterns, haystack)
+        }
+        config::Condition::MsgMatchNone(cond) => {
+            let haystack = match cond.mode {
+                config::MsgMode::Raw => commit.raw_message.as_str(),
+                config::MsgMode::Title => commit.title.as_str(),
+                config::MsgMode::Body => commit.body.as_str(),
+            };
+            matches_any_regex(&cond.patterns, haystack).map(|matched| !matched)
         }
         config::Condition::DiffMatchAny(cond) => {
             let haystack = match cond.mode {
@@ -452,12 +467,15 @@ pub fn collect_violations(
     assertions: &[config::Assertion],
     history: &config::History,
     verbose: u8,
-) -> Result<Vec<Violation>, AppError> {
+) -> Result<LintResult, AppError> {
     if assertions.is_empty() {
-        return Ok(Vec::new());
+        return Ok(LintResult {
+            commits_checked: Vec::new(),
+            violations: Vec::new(),
+        });
     }
 
-    let shas = match scope {
+    let commits_checked = match scope {
         LintScope::CommitSha(sha) => vec![sha.clone()],
         LintScope::RefRange {
             source_ref,
@@ -465,13 +483,16 @@ pub fn collect_violations(
         } => resolve_ref_range_commit_shas(source_ref, target_ref, history, verbose)?,
     };
 
-    if shas.is_empty() {
-        return Ok(Vec::new());
+    if commits_checked.is_empty() {
+        return Ok(LintResult {
+            commits_checked,
+            violations: Vec::new(),
+        });
     }
 
     let mut violations = Vec::new();
-    for sha in shas {
-        let context = load_commit_context(&sha)?;
+    for sha in &commits_checked {
+        let context = load_commit_context(sha)?;
         for assertion in assertions {
             if assertion_violated(assertion, &context)? {
                 violations.push(Violation {
@@ -487,7 +508,10 @@ pub fn collect_violations(
         }
     }
 
-    Ok(violations)
+    Ok(LintResult {
+        commits_checked,
+        violations,
+    })
 }
 
 #[cfg(test)]

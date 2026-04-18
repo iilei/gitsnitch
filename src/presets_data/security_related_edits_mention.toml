@@ -1,13 +1,13 @@
 [[assertions]]
 alias = "preset_security_related_edits_mention"
 description = "Require a security acknowledgement trailer when security ignore files or exclusions are added"
-banner = "Security-related ignore changes require a Sec-Ack-By trailer in the commit body."
+banner = "Security-related ignore changes require a Sec-Ack-By trailer in the commit body.\n\nCommits:\n{% for v in violations %}{% if v.assertion_alias == violation.assertion_alias %}- {{ v.commit_sha_short }}\n{% endif %}{% endfor %}"
 hint = "Add a trailer like: Sec-Ack-By: security-reviewer"
 severity = 220
 
 [assertions.must_satisfy]
 [assertions.must_satisfy.condition]
-type = "msg_match"
+type = "msg_match_any"
 mode = "body"
 patterns = ['(^|\n)Sec-Ack-By: \S+']
 

@@ -109,7 +109,7 @@ fn write_config(repo: &Path, violation_mode: bool, severities: &[u8]) -> Result<
         }
         content.push_str("[assertions.must_satisfy]\n");
         content.push_str("[assertions.must_satisfy.condition]\n");
-        content.push_str("type = \"msg_match\"\n");
+        content.push_str("type = \"msg_match_any\"\n");
         content.push_str("mode = \"raw\"\n");
         content.push_str("patterns = [\"^THIS_PATTERN_NEVER_MATCHES$\"]\n\n");
     }
@@ -136,7 +136,7 @@ fn write_config_without_assertions(repo: &Path, violation_mode: bool) -> Result<
 
 fn write_config_with_alias(repo: &Path, alias: &str) -> Result<PathBuf, String> {
     let content = format!(
-        "api_version = \"pre\"\n\n[[assertions]]\nalias = \"{alias}\"\nseverity = 10\n[assertions.must_satisfy]\n[assertions.must_satisfy.condition]\ntype = \"msg_match\"\nmode = \"raw\"\npatterns = [\"^THIS_PATTERN_NEVER_MATCHES$\"]\n"
+        "api_version = \"pre\"\n\n[[assertions]]\nalias = \"{alias}\"\nseverity = 10\n[assertions.must_satisfy]\n[assertions.must_satisfy.condition]\ntype = \"msg_match_any\"\nmode = \"raw\"\npatterns = [\"^THIS_PATTERN_NEVER_MATCHES$\"]\n"
     );
 
     let config_path = repo.join("test-config-with-alias.toml");
