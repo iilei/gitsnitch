@@ -1,0 +1,11 @@
+/target/
+
+# cargo fix backups
+**/*.rs.bk
+
+# macOS
+.DS_Store
+
+# local IDE metadata
+.idea/
+.vscode
