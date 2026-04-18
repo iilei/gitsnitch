@@ -6,6 +6,8 @@ use std::path::{Path, PathBuf};
 use std::process::{self, Command};
 
 use clap::{ArgAction, Parser};
+use minijinja::Environment;
+use serde_json::json;
 use thiserror::Error;
 
 mod config;
@@ -442,13 +444,17 @@ fn run(args: &Args) -> Result<(), AppError> {
     };
     let config_content = read_config_content(&resolved_source)?;
     let mut assertions: Vec<config::Assertion> = Vec::new();
+    let mut history = config::History::default();
+    let mut severity_bands = config::SeverityBands::default();
     let config_violation_severity_as_exit_code = if let Some(content) = config_content {
         let source_path = match &resolved_source {
             ConfigSource::File(p) => Some(p.as_path()),
             _ => None,
         };
         let cfg = config::parse(&content, source_path)?;
+        history = cfg.history.unwrap_or_default();
         assertions = cfg.assertions;
+        severity_bands = cfg.severity_bands;
         Some(cfg.violation_severity_as_exit_code)
     } else {
         None
@@ -458,7 +464,15 @@ fn run(args: &Args) -> Result<(), AppError> {
         args.violation_severity_as_exit_code,
         config_violation_severity_as_exit_code,
     );
-    let violation_severities = violations::collect_violation_severities(&lint_scope, &assertions)?;
+    let collected_violations = violations::collect_violations(&lint_scope, &assertions, &history)?;
+    let violation_severities = collected_violations
+        .iter()
+        .map(|violation| violation.severity)
+        .collect::<Vec<_>>();
+
+    if !collected_violations.is_empty() {
+        print_violations(&collected_violations, &severity_bands)?;
+    }
 
     let violation_exit_code = resolve_violation_exit_code(
         effective_violation_severity_as_exit_code,
@@ -490,6 +504,89 @@ fn resolve_violation_exit_code(
     violation_severities: &[u8],
 ) -> i32 {
     exit_codes::resolve_violation_exit_code(violation_severity_as_exit_code, violation_severities)
+}
+
+const fn severity_band_label(severity: u8, bands: &config::SeverityBands) -> &'static str {
+    if severity >= bands.fatal {
+        "Fatal"
+    } else if severity >= bands.error {
+        "Error"
+    } else if severity >= bands.warning {
+        "Warning"
+    } else {
+        "Information"
+    }
+}
+
+fn render_template(
+    template: &str,
+    violation: &violations::Violation,
+    severity_band: &str,
+) -> Result<Option<String>, AppError> {
+    if template.trim().is_empty() {
+        return Ok(None);
+    }
+
+    let environment = Environment::new();
+    let text = format!(
+        "[{severity_band}:{}] {}",
+        violation.severity, violation.assertion_alias
+    );
+    let payload = json!({
+        "text": text,
+        "alias": violation.assertion_alias,
+        "description": violation.assertion_description,
+        "severity": violation.severity,
+        "severity_band": severity_band,
+        "commit_sha": violation.commit_sha,
+        "commit_title": violation.commit_title,
+    });
+
+    let rendered = environment
+        .render_str(
+            template,
+            minijinja::context!(
+                violation => &payload,
+                violations => std::slice::from_ref(&payload),
+                violation_banners => std::slice::from_ref(&payload),
+            ),
+        )
+        .map_err(|error| {
+            AppError::Message(format!(
+                "failed to render assertion template '{}': {error}",
+                violation.assertion_alias
+            ))
+        })?;
+
+    if rendered.trim().is_empty() {
+        return Ok(None);
+    }
+
+    Ok(Some(rendered))
+}
+
+fn print_violations(
+    collected_violations: &[violations::Violation],
+    severity_bands: &config::SeverityBands,
+) -> Result<(), AppError> {
+    for violation in collected_violations {
+        let severity_band = severity_band_label(violation.severity, severity_bands);
+        eprintln!(
+            "violation [{severity_band}:{}] {} ({})",
+            violation.severity, violation.assertion_alias, violation.commit_sha
+        );
+
+        if let Some(rendered_banner) = render_template(&violation.banner, violation, severity_band)?
+        {
+            eprintln!("{rendered_banner}");
+        }
+
+        if let Some(rendered_hint) = render_template(&violation.hint, violation, severity_band)? {
+            eprintln!("hint: {rendered_hint}");
+        }
+    }
+
+    Ok(())
 }
 
 fn main() {
@@ -527,8 +624,10 @@ fn main() {
 mod tests {
     use super::{
         AppError, Args, DEFAULT_ENV_PREFIX, parse_remap_env_vars,
-        remapped_or_prefixed_env_non_empty_with_lookup, validate_env_resolution_mode,
+        remapped_or_prefixed_env_non_empty_with_lookup, severity_band_label,
+        validate_env_resolution_mode,
     };
+    use crate::{config, violations};
     use std::collections::BTreeMap;
 
     fn test_args() -> Args {
@@ -761,5 +860,63 @@ mod tests {
         );
 
         assert_eq!(resolved, Some("/tmp/config".to_owned()));
+    }
+
+    #[test]
+    fn severity_band_label_resolves_expected_band() {
+        let bands = config::SeverityBands {
+            fatal: 200,
+            error: 10,
+            warning: 2,
+            information: 0,
+        };
+
+        assert_eq!(severity_band_label(220, &bands), "Fatal");
+        assert_eq!(severity_band_label(10, &bands), "Error");
+        assert_eq!(severity_band_label(5, &bands), "Warning");
+        assert_eq!(severity_band_label(1, &bands), "Information");
+    }
+
+    #[test]
+    fn render_template_includes_violation_context_values() {
+        let violation = violations::Violation {
+            commit_sha: "abc123".to_owned(),
+            commit_title: "feat: add lint".to_owned(),
+            assertion_alias: "conventional-title".to_owned(),
+            assertion_description: "desc".to_owned(),
+            severity: 10,
+            banner: "title={{ violation.commit_title }} band={{ violation.severity_band }}"
+                .to_owned(),
+            hint: String::new(),
+        };
+
+        let result = super::render_template(&violation.banner, &violation, "Error");
+        let rendered = match result {
+            Ok(Some(value)) => value,
+            Ok(None) | Err(_) => String::new(),
+        };
+
+        assert_eq!(rendered, "title=feat: add lint band=Error");
+    }
+
+    #[test]
+    fn render_template_supports_loop_over_violations() {
+        let violation = violations::Violation {
+            commit_sha: "abc123".to_owned(),
+            commit_title: "feat: add lint".to_owned(),
+            assertion_alias: "conventional-title".to_owned(),
+            assertion_description: "desc".to_owned(),
+            severity: 10,
+            banner: "{% for v in violations %}{{ v.alias }}{% endfor %}".to_owned(),
+            hint: String::new(),
+        };
+
+        let result = super::render_template(&violation.banner, &violation, "Error");
+        let rendered = match result {
+            Ok(Some(value)) => value,
+            Ok(None) | Err(_) => String::new(),
+        };
+
+        assert_eq!(rendered, "conventional-title");
     }
 }

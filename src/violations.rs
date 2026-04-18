@@ -5,6 +5,17 @@ use regex::Regex;
 use crate::{AppError, LintScope, config};
 
 #[derive(Debug)]
+pub struct Violation {
+    pub commit_sha: String,
+    pub commit_title: String,
+    pub assertion_alias: String,
+    pub assertion_description: String,
+    pub severity: u8,
+    pub banner: String,
+    pub hint: String,
+}
+
+#[derive(Debug)]
 struct CommitContext {
     raw_message: String,
     title: String,
@@ -39,24 +50,82 @@ fn run_git_capture(args: &[&str]) -> Result<String, AppError> {
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
-fn resolve_commit_shas(scope: &LintScope) -> Result<Vec<String>, AppError> {
-    match scope {
-        LintScope::CommitSha(sha) => Ok(vec![sha.clone()]),
-        LintScope::RefRange {
-            source_ref,
-            target_ref,
-        } => {
-            let range = format!("{target_ref}..{source_ref}");
-            let output = run_git_capture(&["rev-list", "--reverse", &range])?;
-            let commits = output
-                .lines()
-                .map(str::trim)
-                .filter(|line| !line.is_empty())
-                .map(ToOwned::to_owned)
-                .collect::<Vec<_>>();
-            Ok(commits)
+fn resolve_ref_range_commit_shas(
+    source_ref: &str,
+    target_ref: &str,
+    history: &config::History,
+) -> Result<Vec<String>, AppError> {
+    let range = format!("{target_ref}..{source_ref}");
+
+    match collect_rev_list(&range) {
+        Ok(commits) => Ok(commits),
+        Err(original_error) => match history.autoheal_shallow {
+            config::AutohealShallow::Never => Err(original_error),
+            config::AutohealShallow::Full => maybe_autoheal_shallow_full(&range, original_error),
+            config::AutohealShallow::Incremental => {
+                maybe_autoheal_shallow_incremental(&range, history, original_error)
+            }
+        },
+    }
+}
+
+fn collect_rev_list(range: &str) -> Result<Vec<String>, AppError> {
+    let output = run_git_capture(&["rev-list", "--reverse", range])?;
+    let commits = output
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(ToOwned::to_owned)
+        .collect::<Vec<_>>();
+    Ok(commits)
+}
+
+fn maybe_autoheal_shallow_full(
+    range: &str,
+    original_error: AppError,
+) -> Result<Vec<String>, AppError> {
+    if !is_shallow_repository()? {
+        return Err(original_error);
+    }
+
+    run_git_capture(&["fetch", "--all", "--unshallow", "--tags"])?;
+    collect_rev_list(range)
+}
+
+fn maybe_autoheal_shallow_incremental(
+    range: &str,
+    history: &config::History,
+    original_error: AppError,
+) -> Result<Vec<String>, AppError> {
+    if !is_shallow_repository()? {
+        return Err(original_error);
+    }
+
+    for try_index in 0..history.autoheal_shallow_tries {
+        let shift = incremental_deepen_step(history.autoheal_shallow_shift, try_index)?;
+        let shift_str = shift.to_string();
+        run_git_capture(&["fetch", "--all", "--deepen", shift_str.as_str(), "--tags"])?;
+
+        if let Ok(commits) = collect_rev_list(range) {
+            return Ok(commits);
         }
     }
+
+    Err(original_error)
+}
+
+fn incremental_deepen_step(base_shift: u32, try_index: u32) -> Result<u32, AppError> {
+    let factor = 1_u32
+        .checked_shl(try_index)
+        .ok_or_else(|| AppError::Message("incremental shallow-heal factor overflow".to_owned()))?;
+    base_shift.checked_mul(factor).ok_or_else(|| {
+        AppError::Message("incremental shallow-heal deepen value overflow".to_owned())
+    })
+}
+
+fn is_shallow_repository() -> Result<bool, AppError> {
+    let output = run_git_capture(&["rev-parse", "--is-shallow-repository"])?;
+    Ok(output.trim() == "true")
 }
 
 fn load_commit_message_fields(sha: &str) -> Result<(String, String), AppError> {
@@ -268,28 +337,66 @@ fn assertion_violated(
     evaluate_condition(&assertion.must_satisfy.condition, commit).map(|passed| !passed)
 }
 
-pub fn collect_violation_severities(
+pub fn collect_violations(
     scope: &LintScope,
     assertions: &[config::Assertion],
-) -> Result<Vec<u8>, AppError> {
+    history: &config::History,
+) -> Result<Vec<Violation>, AppError> {
     if assertions.is_empty() {
         return Ok(Vec::new());
     }
 
-    let shas = resolve_commit_shas(scope)?;
+    let shas = match scope {
+        LintScope::CommitSha(sha) => vec![sha.clone()],
+        LintScope::RefRange {
+            source_ref,
+            target_ref,
+        } => resolve_ref_range_commit_shas(source_ref, target_ref, history)?,
+    };
+
     if shas.is_empty() {
         return Ok(Vec::new());
     }
 
-    let mut severities = Vec::new();
+    let mut violations = Vec::new();
     for sha in shas {
         let context = load_commit_context(&sha)?;
         for assertion in assertions {
             if assertion_violated(assertion, &context)? {
-                severities.push(assertion.severity);
+                violations.push(Violation {
+                    commit_sha: sha.clone(),
+                    commit_title: context.title.clone(),
+                    assertion_alias: assertion.alias.clone(),
+                    assertion_description: assertion.description.clone(),
+                    severity: assertion.severity,
+                    banner: assertion.banner.clone(),
+                    hint: assertion.hint.clone(),
+                });
             }
         }
     }
 
-    Ok(severities)
+    Ok(violations)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::incremental_deepen_step;
+
+    #[test]
+    fn incremental_deepen_step_grows_exponentially_from_base_shift() {
+        let first = incremental_deepen_step(10, 0);
+        let second = incremental_deepen_step(10, 1);
+        let third = incremental_deepen_step(10, 2);
+
+        assert_eq!(first.ok(), Some(10));
+        assert_eq!(second.ok(), Some(20));
+        assert_eq!(third.ok(), Some(40));
+    }
+
+    #[test]
+    fn incremental_deepen_step_returns_error_on_overflow() {
+        let value = incremental_deepen_step(u32::MAX, 1);
+        assert!(value.is_err());
+    }
 }

@@ -13,6 +13,7 @@ serde_yaml = "0.9"
 thiserror = "2"
 toml = "0.8"
 regex = "1"
+minijinja = "2"
 
 [lints.rust]
 unsafe_code = "forbid"

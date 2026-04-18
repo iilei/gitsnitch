@@ -100,6 +100,16 @@ pub struct History {
     pub autoheal_shallow_tries: u32,
 }
 
+impl Default for History {
+    fn default() -> Self {
+        Self {
+            autoheal_shallow: defaults::autoheal_shallow(),
+            autoheal_shallow_shift: defaults::autoheal_shallow_shift(),
+            autoheal_shallow_tries: defaults::autoheal_shallow_tries(),
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum AutohealShallow {
@@ -119,6 +129,12 @@ pub struct SeverityBands {
     pub warning: u8,
     #[serde(rename = "Information")]
     pub information: u8,
+}
+
+impl Default for SeverityBands {
+    fn default() -> Self {
+        defaults::severity_bands()
+    }
 }
 
 #[derive(Debug, Deserialize)]
