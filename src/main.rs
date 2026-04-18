@@ -648,9 +648,9 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::{
-        AppError, Args, DEFAULT_ENV_PREFIX, check_is_repo_at, git_repo_root_at,
-        parse_remap_env_vars, remapped_or_prefixed_env_non_empty_with_lookup, severity_band_label,
-        validate_env_resolution_mode,
+        AppError, Args, DEFAULT_ENV_PREFIX, autodiscover_config, check_is_repo_at,
+        git_repo_root_at, parse_remap_env_vars, remapped_or_prefixed_env_non_empty_with_lookup,
+        severity_band_label, validate_env_resolution_mode,
     };
     use crate::{config, violations};
     use std::collections::BTreeMap;
@@ -773,6 +773,36 @@ mod tests {
         };
 
         assert!(error_message.contains("duplicate --remap-env-var key 'GITSNITCH_SOURCE_REF'"));
+    }
+
+    #[test]
+    fn parse_remap_env_vars_rejects_entry_without_separator() {
+        let entries = vec!["GITSNITCH_SOURCE_REF".to_owned()];
+
+        let result = parse_remap_env_vars(&entries);
+        assert!(result.is_err());
+
+        let error_message = match result {
+            Err(AppError::Message(message)) => message,
+            Ok(_) | Err(_) => String::new(),
+        };
+
+        assert!(error_message.contains("expected KEY=ENV_VAR"));
+    }
+
+    #[test]
+    fn parse_remap_env_vars_rejects_empty_key() {
+        let entries = vec!["   =PRE_COMMIT_TO_REF".to_owned()];
+
+        let result = parse_remap_env_vars(&entries);
+        assert!(result.is_err());
+
+        let error_message = match result {
+            Err(AppError::Message(message)) => message,
+            Ok(_) | Err(_) => String::new(),
+        };
+
+        assert!(error_message.contains("key cannot be empty"));
     }
 
     #[test]
@@ -1057,5 +1087,117 @@ mod tests {
             Ok(_) | Err(_) => String::new(),
         };
         assert!(error_message.contains("failed to determine git repository root"));
+    }
+
+    #[test]
+    fn autodiscover_config_returns_none_when_no_candidates_exist() {
+        let since_epoch = SystemTime::now().duration_since(UNIX_EPOCH);
+        assert!(since_epoch.is_ok());
+        let Ok(duration) = since_epoch else {
+            return;
+        };
+
+        let root = std::env::temp_dir().join(format!(
+            "gitsnitch-autodiscover-none-{}-{}",
+            std::process::id(),
+            duration.as_nanos()
+        ));
+
+        let create_dir = fs::create_dir_all(&root);
+        assert!(create_dir.is_ok());
+
+        let found = autodiscover_config(PathBuf::as_path(&root));
+        let _ = fs::remove_dir_all(&root);
+
+        assert!(found.is_none());
+    }
+
+    #[test]
+    fn autodiscover_config_prefers_highest_precedence_candidate() {
+        let since_epoch = SystemTime::now().duration_since(UNIX_EPOCH);
+        assert!(since_epoch.is_ok());
+        let Ok(duration) = since_epoch else {
+            return;
+        };
+
+        let root = std::env::temp_dir().join(format!(
+            "gitsnitch-autodiscover-precedence-{}-{}",
+            std::process::id(),
+            duration.as_nanos()
+        ));
+
+        let create_dir = fs::create_dir_all(&root);
+        assert!(create_dir.is_ok());
+
+        let lower_candidate = root.join(".gitsnitch.json");
+        let higher_candidate = root.join(".gitsnitch.toml");
+
+        let write_lower = fs::write(&lower_candidate, "{}");
+        assert!(write_lower.is_ok());
+        let write_higher = fs::write(&higher_candidate, "api_version = \"pre\"\n");
+        assert!(write_higher.is_ok());
+
+        let found = autodiscover_config(PathBuf::as_path(&root));
+        let _ = fs::remove_dir_all(&root);
+
+        assert_eq!(found, Some(higher_candidate));
+    }
+
+    #[test]
+    fn autodiscover_config_ignores_directory_candidates() {
+        let since_epoch = SystemTime::now().duration_since(UNIX_EPOCH);
+        assert!(since_epoch.is_ok());
+        let Ok(duration) = since_epoch else {
+            return;
+        };
+
+        let root = std::env::temp_dir().join(format!(
+            "gitsnitch-autodiscover-directory-candidate-{}-{}",
+            std::process::id(),
+            duration.as_nanos()
+        ));
+
+        let create_dir = fs::create_dir_all(&root);
+        assert!(create_dir.is_ok());
+
+        let higher_candidate_dir = root.join(".gitsnitch.toml");
+        let create_candidate_dir = fs::create_dir_all(&higher_candidate_dir);
+        assert!(create_candidate_dir.is_ok());
+
+        let next_candidate_file = root.join(".gitsnitchrc");
+        let write_selected = fs::write(&next_candidate_file, "api_version = \"pre\"\n");
+        assert!(write_selected.is_ok());
+
+        let found = autodiscover_config(PathBuf::as_path(&root));
+        let _ = fs::remove_dir_all(&root);
+
+        assert_eq!(found, Some(next_candidate_file));
+    }
+
+    #[test]
+    fn autodiscover_config_falls_back_to_next_available_candidate() {
+        let since_epoch = SystemTime::now().duration_since(UNIX_EPOCH);
+        assert!(since_epoch.is_ok());
+        let Ok(duration) = since_epoch else {
+            return;
+        };
+
+        let root = std::env::temp_dir().join(format!(
+            "gitsnitch-autodiscover-fallback-{}-{}",
+            std::process::id(),
+            duration.as_nanos()
+        ));
+
+        let create_dir = fs::create_dir_all(&root);
+        assert!(create_dir.is_ok());
+
+        let selected_candidate = root.join(".gitsnitchrc");
+        let write_selected = fs::write(&selected_candidate, "api_version = \"pre\"\n");
+        assert!(write_selected.is_ok());
+
+        let found = autodiscover_config(PathBuf::as_path(&root));
+        let _ = fs::remove_dir_all(&root);
+
+        assert_eq!(found, Some(selected_candidate));
     }
 }
