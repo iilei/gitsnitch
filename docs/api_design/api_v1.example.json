@@ -1,0 +1,197 @@
+{
+  "api_version": "pre",
+  "violation_severity_as_exit_code": false,
+  "custom_meta": {
+    "team": "some-team-name"
+  },
+  "history": {
+    "autoheal_shallow": "incremental",
+    "autoheal_shallow_shift": 10,
+    "autoheal_shallow_tries": 6
+  },
+  "severity_bands": {
+    "Fatal": 200,
+    "Error": 10,
+    "Warning": 2,
+    "Information": 0
+  },
+  "assertions": [
+    {
+      "skip": false,
+      "alias": "conventional-title",
+      "description": "Require the commit title to follow the conventional commit format.",
+      "banner": "Conventional title required.\n{{- range .violation_banners }}{{ .text }}{{- end }}",
+      "severity": 10,
+      "must_satisfy": {
+        "condition": {
+          "name": "title-must-match",
+          "type": "msg_match",
+          "mode": "title",
+          "patterns": [
+            "^(?i:feat|fix|docs|chore|refactor|test)(\\(.+\\))?: .+"
+          ]
+        }
+      },
+      "skip_if": {
+        "condition": {
+          "name": "maintenance-branch",
+          "type": "branch_match",
+          "patterns": [
+            "^maintenance/.+$"
+          ]
+        }
+      }
+    },
+    {
+      "skip": false,
+      "alias": "diff-size-threshold",
+      "description": "Reject commits whose diff line count exceeds the configured threshold.",
+      "banner": "Diff size threshold exceeded.",
+      "severity": 200,
+      "must_satisfy": {
+        "condition": {
+          "name": "line-count-upper-bound",
+          "type": "threshold_compare",
+          "metric": "line_count",
+          "operator": "lte",
+          "value": 500
+        }
+      }
+    },
+    {
+      "skip": false,
+      "alias": "allowed-paths-only",
+      "description": "Require changed files to stay within approved repository paths.",
+      "banner": "Changed files must stay in allowed paths.",
+      "severity": 30,
+      "must_satisfy": {
+        "condition": {
+          "name": "files-path-constraint",
+          "type": "diff_match_any",
+          "mode": "file",
+          "patterns": [
+            "^cmd/",
+            "^internal/",
+            "^docs/"
+          ]
+        }
+      }
+    },
+    {
+      "skip": false,
+      "alias": "body-ticket-reference",
+      "description": "Require the commit body to include a ticket reference.",
+      "banner": "Commit body should mention ticket.",
+      "severity": 10,
+      "must_satisfy": {
+        "condition": {
+          "name": "body-contains-ticket",
+          "type": "msg_match",
+          "mode": "body",
+          "patterns": [
+            "[A-Z]{2,10}-[0-9]+"
+          ]
+        }
+      }
+    },
+    {
+      "skip": false,
+      "alias": "raw-message-shape",
+      "description": "Require raw commit message shape: title only, or title + blank line + body.",
+      "banner": "Commit message must be title-only or title + blank line + body.",
+      "severity": 10,
+      "must_satisfy": {
+        "condition": {
+          "name": "raw-title-body-shape",
+          "type": "msg_match",
+          "mode": "raw",
+          "patterns": [
+            "^[^\\n]+$|\\S[^\\n]*\\n\\n\\s*\\S+"
+          ]
+        }
+      }
+    },
+    {
+      "skip": false,
+      "alias": "security-annotations",
+      "description": "Require a security acknowledgement marker in the commit body.",
+      "banner": "Commit body should mention security acknowledgement.",
+      "severity": 220,
+      "must_satisfy": {
+        "condition": {
+          "name": "body-contains-security-ack",
+          "type": "msg_match",
+          "mode": "body",
+          "patterns": [
+            "(^|\\n)SAV-Ack-By: @.+"
+          ]
+        }
+      },
+      "skip_if": {
+        "condition": {
+          "name": "no-security-related-changes",
+          "type": "diff_match_none",
+          "mode": "file",
+          "patterns": [
+            "\\.trivyignore$",
+            "grype(\\.ya?ml)?$"
+          ]
+        }
+      }
+    },
+    {
+      "skip": false,
+      "alias": "md-image-alt-text",
+      "description": "Require alt text on images added in markdown files.",
+      "banner": "Markdown image missing alt text.",
+      "severity": 2,
+      "must_satisfy": {
+        "condition": {
+          "name": "no-empty-alt-images",
+          "type": "diff_match_none",
+          "mode": "line",
+          "patterns": [
+            "!\\[\\]\\("
+          ]
+        }
+      },
+      "skip_if": {
+        "condition": {
+          "name": "no-markdown-changes",
+          "type": "diff_match_none",
+          "mode": "file",
+          "patterns": [
+            "\\.md$"
+          ]
+        }
+      }
+    },
+    {
+      "skip": false,
+      "alias": "no-unreviewed-trivyignore",
+      "description": "Flag commits that add trivyignore entries or grype exclusions without review annotation.",
+      "banner": "Security exclusion added without review annotation.",
+      "severity": 220,
+      "must_satisfy": {
+        "condition": {
+          "name": "commit-msg-has-review-tag",
+          "type": "msg_match",
+          "mode": "body",
+          "patterns": [
+            "(^|\\n)Reviewed-By: @.+"
+          ]
+        }
+      },
+      "skip_if": {
+        "condition": {
+          "name": "no-security-exclusion-added",
+          "type": "diff_match_none",
+          "mode": "line",
+          "patterns": [
+            "#\\s*trivyignore"
+          ]
+        }
+      }
+    }
+  ]
+}

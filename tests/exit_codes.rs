@@ -1,0 +1,217 @@
+use std::fmt::Write as _;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+struct TempDir {
+    path: PathBuf,
+}
+
+impl TempDir {
+    fn new(prefix: &str) -> Result<Self, String> {
+        let mut path = std::env::temp_dir();
+        let since_epoch = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|error| format!("failed to compute unix timestamp: {error}"))?;
+        path.push(format!(
+            "{prefix}-{}-{}",
+            std::process::id(),
+            since_epoch.as_nanos()
+        ));
+
+        fs::create_dir_all(&path).map_err(|error| {
+            format!(
+                "failed to create temp directory '{}': {error}",
+                path.display()
+            )
+        })?;
+
+        Ok(Self { path })
+    }
+}
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.path);
+    }
+}
+
+fn run_git(repo: &Path, args: &[&str]) -> Result<String, String> {
+    let output = Command::new("git")
+        .current_dir(repo)
+        .args(args)
+        .output()
+        .map_err(|error| format!("failed to run git {args:?}: {error}"))?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "git {args:?} failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
+}
+
+fn run_gitsnitch(cwd: &Path, args: &[&str]) -> Result<i32, String> {
+    let bin = std::env::var("CARGO_BIN_EXE_gitsnitch")
+        .map_err(|error| format!("missing CARGO_BIN_EXE_gitsnitch env var: {error}"))?;
+
+    let status = Command::new(bin)
+        .current_dir(cwd)
+        .args(args)
+        .status()
+        .map_err(|error| format!("failed to run gitsnitch: {error}"))?;
+
+    status
+        .code()
+        .ok_or_else(|| "gitsnitch terminated without an exit code".to_owned())
+}
+
+fn init_repo_with_single_commit() -> Result<(TempDir, String), String> {
+    let temp = TempDir::new("gitsnitch-it")?;
+
+    run_git(&temp.path, &["init"])?;
+    run_git(&temp.path, &["config", "user.name", "Test User"])?;
+    run_git(&temp.path, &["config", "user.email", "test@example.com"])?;
+
+    let file_path = temp.path.join("README.md");
+    fs::write(&file_path, "seed\n")
+        .map_err(|error| format!("failed to write '{}': {error}", file_path.display()))?;
+
+    run_git(&temp.path, &["add", "README.md"])?;
+    run_git(
+        &temp.path,
+        &["commit", "-m", "feat: seed", "-m", "body text"],
+    )?;
+
+    let sha = run_git(&temp.path, &["rev-parse", "HEAD"])?;
+    Ok((temp, sha))
+}
+
+fn write_config(repo: &Path, violation_mode: bool, severities: &[u8]) -> Result<PathBuf, String> {
+    let mut content = format!(
+        "api_version = \"pre\"\nviolation_severity_as_exit_code = {}\n\n",
+        if violation_mode { "true" } else { "false" }
+    );
+
+    for (idx, severity) in severities.iter().enumerate() {
+        content.push_str("[[assertions]]\n");
+        if writeln!(content, "alias = \"fail_{idx}\"").is_err() {
+            return Err("failed to write alias into test config".to_owned());
+        }
+        if writeln!(content, "severity = {severity}").is_err() {
+            return Err("failed to write severity into test config".to_owned());
+        }
+        content.push_str("[assertions.must_satisfy]\n");
+        content.push_str("[assertions.must_satisfy.condition]\n");
+        content.push_str("type = \"msg_match\"\n");
+        content.push_str("mode = \"raw\"\n");
+        content.push_str("patterns = [\"^THIS_PATTERN_NEVER_MATCHES$\"]\n\n");
+    }
+
+    let config_path = repo.join("test-config.toml");
+    fs::write(&config_path, content)
+        .map_err(|error| format!("failed to write '{}': {error}", config_path.display()))?;
+
+    Ok(config_path)
+}
+
+#[test]
+fn violations_are_exit_silent_when_mode_is_disabled() {
+    let setup = init_repo_with_single_commit();
+    assert!(setup.is_ok());
+    let Ok((repo, sha)) = setup else {
+        return;
+    };
+
+    let cfg = write_config(&repo.path, false, &[200]);
+    assert!(cfg.is_ok());
+    let Ok(cfg_path) = cfg else {
+        return;
+    };
+
+    let cfg_path_str = cfg_path.to_string_lossy().to_string();
+    let exit = run_gitsnitch(
+        &repo.path,
+        &["--config", &cfg_path_str, "--commit-sha", &sha],
+    );
+    assert!(exit.is_ok());
+    let Ok(code) = exit else {
+        return;
+    };
+
+    assert_eq!(code, 0);
+}
+
+#[test]
+fn violations_return_max_severity_when_mode_is_enabled() {
+    let setup = init_repo_with_single_commit();
+    assert!(setup.is_ok());
+    let Ok((repo, sha)) = setup else {
+        return;
+    };
+
+    let cfg = write_config(&repo.path, true, &[100, 200]);
+    assert!(cfg.is_ok());
+    let Ok(cfg_path) = cfg else {
+        return;
+    };
+
+    let cfg_path_str = cfg_path.to_string_lossy().to_string();
+    let exit = run_gitsnitch(
+        &repo.path,
+        &["--config", &cfg_path_str, "--commit-sha", &sha],
+    );
+    assert!(exit.is_ok());
+    let Ok(code) = exit else {
+        return;
+    };
+
+    assert_eq!(code, 200);
+}
+
+#[test]
+fn mode_enabled_with_only_zero_severities_returns_zero() {
+    let setup = init_repo_with_single_commit();
+    assert!(setup.is_ok());
+    let Ok((repo, sha)) = setup else {
+        return;
+    };
+
+    let cfg = write_config(&repo.path, true, &[0]);
+    assert!(cfg.is_ok());
+    let Ok(cfg_path) = cfg else {
+        return;
+    };
+
+    let cfg_path_str = cfg_path.to_string_lossy().to_string();
+    let exit = run_gitsnitch(
+        &repo.path,
+        &["--config", &cfg_path_str, "--commit-sha", &sha],
+    );
+    assert!(exit.is_ok());
+    let Ok(code) = exit else {
+        return;
+    };
+
+    assert_eq!(code, 0);
+}
+
+#[test]
+fn non_repo_failures_use_reserved_internal_exit_range() {
+    let temp = TempDir::new("gitsnitch-nonrepo");
+    assert!(temp.is_ok());
+    let Ok(temp_dir) = temp else {
+        return;
+    };
+
+    let exit = run_gitsnitch(&temp_dir.path, &["--commit-sha", "deadbeef"]);
+    assert!(exit.is_ok());
+    let Ok(code) = exit else {
+        return;
+    };
+
+    assert!((251..=255).contains(&code));
+}

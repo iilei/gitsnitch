@@ -1,0 +1,295 @@
+use std::process::Command;
+
+use regex::Regex;
+
+use crate::{AppError, LintScope, config};
+
+#[derive(Debug)]
+struct CommitContext {
+    raw_message: String,
+    title: String,
+    body: String,
+    diff_raw: String,
+    diff_files_joined: String,
+    diff_lines_joined: String,
+    line_count: u32,
+    file_count: u32,
+    branches_joined: String,
+}
+
+fn run_git_capture(args: &[&str]) -> Result<String, AppError> {
+    let output = Command::new("git")
+        .args(args)
+        .output()
+        .map_err(|error| AppError::Message(format!("failed to execute git {args:?}: {error}")))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+        return Err(AppError::Message(format!(
+            "git command {:?} failed: {}",
+            args,
+            if stderr.is_empty() {
+                "unknown git error".to_owned()
+            } else {
+                stderr
+            }
+        )));
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+fn resolve_commit_shas(scope: &LintScope) -> Result<Vec<String>, AppError> {
+    match scope {
+        LintScope::CommitSha(sha) => Ok(vec![sha.clone()]),
+        LintScope::RefRange {
+            source_ref,
+            target_ref,
+        } => {
+            let range = format!("{target_ref}..{source_ref}");
+            let output = run_git_capture(&["rev-list", "--reverse", &range])?;
+            let commits = output
+                .lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty())
+                .map(ToOwned::to_owned)
+                .collect::<Vec<_>>();
+            Ok(commits)
+        }
+    }
+}
+
+fn load_commit_message_fields(sha: &str) -> Result<(String, String), AppError> {
+    // Use NUL-delimited `%s` + `%B` to preserve the raw message shape reliably.
+    // `--no-show-signature` avoids PGP signature lines polluting `%B`.
+    let output = run_git_capture(&[
+        "log",
+        "--no-show-signature",
+        "-n",
+        "1",
+        "--format=%s%x00%B%x00",
+        sha,
+    ])?;
+
+    let mut fields = output.split('\0');
+    let title = fields.next().ok_or_else(|| {
+        AppError::Message(format!(
+            "failed to parse git log title field for commit '{sha}'"
+        ))
+    })?;
+    let raw_message = fields.next().ok_or_else(|| {
+        AppError::Message(format!(
+            "failed to parse git log raw message field for commit '{sha}'"
+        ))
+    })?;
+
+    Ok((title.to_owned(), raw_message.to_owned()))
+}
+
+fn body_from_raw_message(raw_message: &str) -> String {
+    // Keep the exact delimiter/newline structure between title and body.
+    // We only remove the first title line plus its terminating newline.
+    raw_message
+        .split_once('\n')
+        .map_or_else(String::new, |(_, rest)| rest.to_owned())
+}
+
+fn collect_diff_lines(diff_raw: &str) -> String {
+    diff_raw
+        .lines()
+        .filter(|line| {
+            (line.starts_with('+') && !line.starts_with("+++"))
+                || (line.starts_with('-') && !line.starts_with("---"))
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn parse_numstat_totals(numstat: &str) -> Result<(u32, u32), AppError> {
+    let mut total_lines: u32 = 0;
+    let mut total_files: u32 = 0;
+
+    for line in numstat.lines().filter(|line| !line.trim().is_empty()) {
+        let mut fields = line.split('\t');
+        let added_raw = fields.next().unwrap_or_default();
+        let removed_raw = fields.next().unwrap_or_default();
+        let path_raw = fields.next().unwrap_or_default();
+
+        if path_raw.is_empty() {
+            continue;
+        }
+
+        total_files = total_files.checked_add(1).ok_or_else(|| {
+            AppError::Message("file count overflow while parsing git numstat".to_owned())
+        })?;
+
+        let added = if added_raw == "-" {
+            0
+        } else {
+            added_raw.parse::<u32>().map_err(|error| {
+                AppError::Message(format!(
+                    "failed to parse numstat added value '{added_raw}': {error}"
+                ))
+            })?
+        };
+
+        let removed = if removed_raw == "-" {
+            0
+        } else {
+            removed_raw.parse::<u32>().map_err(|error| {
+                AppError::Message(format!(
+                    "failed to parse numstat removed value '{removed_raw}': {error}"
+                ))
+            })?
+        };
+
+        total_lines = total_lines
+            .checked_add(added)
+            .and_then(|value| value.checked_add(removed))
+            .ok_or_else(|| {
+                AppError::Message("line count overflow while parsing git numstat".to_owned())
+            })?;
+    }
+
+    Ok((total_lines, total_files))
+}
+
+fn load_commit_context(sha: &str) -> Result<CommitContext, AppError> {
+    let (title, raw_message) = load_commit_message_fields(sha)?;
+    let body = body_from_raw_message(&raw_message);
+
+    let diff_raw = run_git_capture(&["show", "--format=", "--no-color", sha])?;
+    let diff_files_joined =
+        run_git_capture(&["diff-tree", "--no-commit-id", "--name-only", "-r", sha])?
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n");
+    let diff_lines_joined = collect_diff_lines(&diff_raw);
+
+    let numstat = run_git_capture(&["show", "--numstat", "--format=", sha])?;
+    let (line_count, file_count) = parse_numstat_totals(&numstat)?;
+
+    let branches_joined =
+        run_git_capture(&["branch", "--contains", sha, "--format=%(refname:short)"])?
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+    Ok(CommitContext {
+        raw_message,
+        title,
+        body,
+        diff_raw,
+        diff_files_joined,
+        diff_lines_joined,
+        line_count,
+        file_count,
+        branches_joined,
+    })
+}
+
+fn matches_any_regex(patterns: &[String], haystack: &str) -> Result<bool, AppError> {
+    for pattern in patterns {
+        let regex = Regex::new(pattern).map_err(|error| {
+            AppError::Message(format!("invalid regex pattern '{pattern}': {error}"))
+        })?;
+        if regex.is_match(haystack) {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
+}
+
+fn evaluate_condition(
+    condition: &config::Condition,
+    commit: &CommitContext,
+) -> Result<bool, AppError> {
+    match condition {
+        config::Condition::MsgMatch(cond) => {
+            let haystack = match cond.mode {
+                config::MsgMode::Raw => commit.raw_message.as_str(),
+                config::MsgMode::Title => commit.title.as_str(),
+                config::MsgMode::Body => commit.body.as_str(),
+            };
+            matches_any_regex(&cond.patterns, haystack)
+        }
+        config::Condition::DiffMatchAny(cond) => {
+            let haystack = match cond.mode {
+                config::DiffMode::Raw => commit.diff_raw.as_str(),
+                config::DiffMode::File => commit.diff_files_joined.as_str(),
+                config::DiffMode::Line => commit.diff_lines_joined.as_str(),
+            };
+            matches_any_regex(&cond.patterns, haystack)
+        }
+        config::Condition::DiffMatchNone(cond) => {
+            let haystack = match cond.mode {
+                config::DiffMode::Raw => commit.diff_raw.as_str(),
+                config::DiffMode::File => commit.diff_files_joined.as_str(),
+                config::DiffMode::Line => commit.diff_lines_joined.as_str(),
+            };
+            matches_any_regex(&cond.patterns, haystack).map(|matched| !matched)
+        }
+        config::Condition::BranchMatch(cond) => {
+            matches_any_regex(&cond.patterns, commit.branches_joined.as_str())
+        }
+        config::Condition::ThresholdCompare(cond) => {
+            let actual = match cond.metric {
+                config::ThresholdMetric::LineCount => commit.line_count,
+                config::ThresholdMetric::FileCount => commit.file_count,
+            };
+
+            Ok(match cond.operator {
+                config::ThresholdOperator::Lte => actual <= cond.value,
+                config::ThresholdOperator::Gte => actual >= cond.value,
+            })
+        }
+    }
+}
+
+fn assertion_violated(
+    assertion: &config::Assertion,
+    commit: &CommitContext,
+) -> Result<bool, AppError> {
+    if assertion.skip {
+        return Ok(false);
+    }
+
+    if let Some(skip_if) = &assertion.skip_if
+        && evaluate_condition(&skip_if.condition, commit)?
+    {
+        return Ok(false);
+    }
+
+    evaluate_condition(&assertion.must_satisfy.condition, commit).map(|passed| !passed)
+}
+
+pub fn collect_violation_severities(
+    scope: &LintScope,
+    assertions: &[config::Assertion],
+) -> Result<Vec<u8>, AppError> {
+    if assertions.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let shas = resolve_commit_shas(scope)?;
+    if shas.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut severities = Vec::new();
+    for sha in shas {
+        let context = load_commit_context(&sha)?;
+        for assertion in assertions {
+            if assertion_violated(assertion, &context)? {
+                severities.push(assertion.severity);
+            }
+        }
+    }
+
+    Ok(severities)
+}

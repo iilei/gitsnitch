@@ -1,0 +1,81 @@
+# Configuration file for `prek`, a git hook framework written in Rust.
+# See https://prek.j178.dev for more information.
+
+minimum_pre_commit_version = "3.0.0"
+
+[[repos]]
+repo = "local"
+
+[[repos.hooks]]
+id = "rust-fmt"
+name = "rust fmt"
+entry = "cargo fmt"
+language = "system"
+pass_filenames = false
+stages = ["pre-commit", "manual"]
+
+[[repos.hooks]]
+id = "rust-check"
+name = "cargo check"
+entry = "cargo check --all-targets --all-features"
+language = "system"
+pass_filenames = false
+stages = ["pre-commit", "manual"]
+
+[[repos.hooks]]
+id = "rust-clippy"
+name = "rust clippy"
+entry = "cargo clippy --all-targets --all-features -- -D warnings"
+language = "system"
+pass_filenames = false
+stages = ["pre-push", "manual"]
+
+[[repos.hooks]]
+id = "rust-tests"
+name = "rust tests"
+entry = "cargo test --all-features"
+language = "system"
+pass_filenames = false
+stages = ["pre-push", "manual"]
+
+[[repos.hooks]]
+id = "rust-audit"
+name = "cargo audit (security)"
+entry = "cargo audit"
+language = "system"
+pass_filenames = false
+stages = ["pre-push", "manual"]
+
+[[repos.hooks]]
+id = "rust-deny"
+name = "cargo deny (licenses/bans/advisories)"
+entry = "cargo deny check"
+language = "system"
+pass_filenames = false
+stages = ["pre-push", "manual"]
+
+[[repos.hooks]]
+id = "rust-machete"
+name = "cargo machete (unused deps)"
+entry = "cargo machete"
+language = "system"
+pass_filenames = false
+stages = ["manual"]
+
+[[repos.hooks]]
+id = "json-fmt"
+name = "format JSON files"
+entry = "make fmt-json"
+language = "system"
+files = "docs/api_design/.*\\.json$"
+pass_filenames = false
+stages = ["pre-commit", "manual"]
+
+[[repos.hooks]]
+id = "api-design-svg"
+name = "regenerate API design diagram"
+entry = "make update-api-design-svg"
+language = "system"
+files = "docs/api_design/api_design\\.plantuml$"
+pass_filenames = false
+stages = ["pre-commit", "manual"]

@@ -1,0 +1,244 @@
+@startuml "GitSnitch Config Api"
+' !option handwritten true
+' skinparam handwritten true
+' skinparam defaultFontName FG Virgil
+' skinparam monochrome true
+skinparam shadowing false
+skinparam linetype ortho
+skinparam LegendBackgroundColor transparent
+skinparam backgroundColor transparent
+hide empty members
+top to bottom direction
+
+title GitSnitch Configuration Format (next version)
+
+frame "Root Node" {
+  +class Config << (C,#F6C344) >> {
+      + {field} api_version: enum ["pre"] "pre"
+
+      + {field} history: History nullable
+      + {field} custom_meta: CustomMeta default {}
+    + {field} violation_severity_as_exit_code: bool false
+    + {field} severity_bands: SeverityBands default
+      ===
+      + {field} assertions: list[Assertion]
+  }
+}
+
+class CustomMeta << (S,#F6C344)  >>
+
+class History << (C,#F6C344) >> {
+  + {field} autoheal_shallow: enum ["never", "incremental", "full"] "incremental"
+  + {field} autoheal_shallow_shift: int >= 1 10
+  + {field} autoheal_shallow_tries: int >= 1 6
+}
+
+class Assertion << (C,#F6C344) >> {
+     + {field} skip: bool [false] false
+  + {field} alias: string (1..128, pattern ^\\S+$) required
+  + {field} description: string (max chars: 1024) ""
+    + {field} banner: string (Jinja2 template, MiniJinja)
+  + {field} severity: int 0..250 10
+  + {field} hint: string ""
+ }
+
+note left of Assertion::severity
+Ordering semantics: higher number means higher severity.
+Band resolution sorts thresholds by numeric value
+descending and picks first threshold <= severity.
+end note
+
+note left of Config::violation_severity_as_exit_code
+Exit behavior:
+- no violations => exit 0
+- violations and enabled => max violation severity
+- violations and disabled => exit 0
+- internal/runtime errors => reserved exit range 251..255
+end note
+
+note left of CustomMeta
+CustomMeta constraints:
+- type: object
+- maxProperties: 16
+- propertyNames pattern: ^[a-zA-Z0-9_]+$
+- additionalProperties: string (maxLength: 2048)
+- default: {}
+end note
+
+note left of History::autoheal_shallow
+Shallow history auto-heal mode:
+- never: no history fetch
+- full: fetch complete history in one attempt
+- incremental: deepen in repeated tries
+end note
+
+note left of History::autoheal_shallow_shift
+Incremental deepening uses fixed factor 2:
+step(i) = autoheal_shallow_shift * 2^(i-1)
+bounded by autoheal_shallow_tries
+end note
+
+Config   *-u- "0..1" History
+Config   *-- "0..*" Assertion
+Assertion "1" *-- "1" ConditionContainer : must_satisfy
+Assertion "1" *-- "0..1" ConditionContainer : skip_if
+
+Config *-u- "0..1" CustomMeta
+
+Config *-r- "0..1" SeverityBands
+
+class ConditionContainer << (C,#F6C344) >> {
+  + {field} condition: Condition
+}
+class SeverityBands << (C,#F6C344) >> {
+  + {field} Fatal: int 250
+  + {field} Error: int 10
+  + {field} Warning: int 1
+  + {field} Information: int 0
+}
+
+note right of SeverityBands
+Fixed keys in v1.
+Monotonic ordering and unique thresholds
+are enforced at config-load time.
+end note
+
+class Condition << (C,#F6C344) >> {
+  + {abstract} type
+  + {field} name: string (max chars: 256)
+}
+
+
+
+
+
+class MessageCondition << (C,#F6C344) >> {
+  + {field} type: MessageConditionKind
+  + {field} mode: enum ["raw", "title", "body"]
+  + {field} patterns: list[string]
+}
+
+note left of MessageCondition
+Scope by mode:
+- raw: <b>patterns</b> matches full commit message (title + body)
+- title: <b>patterns</b> matches title only
+- body: <b>patterns</b> matches body only
+end note
+
+class DiffMatchCondition << (C,#F6C344) >> {
+  + {field} type: DiffMatchType
+  + {field} mode: enum ["raw", "file", "line"]
+  + {field} patterns: list[string]
+}
+
+note right of DiffMatchCondition
+Scope by mode:
+- raw: <b>patterns</b> matches unified diff output
+- file: <b>patterns</b> matches changed file paths
+- line: <b>patterns</b> matches changed lines
+end note
+
+class MetaCondition << (C,#F6C344) >> {
+  + {field} type: MetaConditionType
+  + {field} patterns: list[string]
+}
+
+class ThresholdCondition << (C,#F6C344) >> {
+  + {field} type: ThresholdConditionType
+  + {field} metric: ThresholdMetric
+  + {field} operator: ThresholdOperator
+  + {field} value: int
+}
+
+
+ConditionContainer "1" *--* "1" Condition
+
+Condition <|-l- MessageCondition
+Condition <|-r- DiffMatchCondition
+Condition <|-d- ThresholdCondition
+Condition <|-- MetaCondition
+
+legend right
+<b>Legend</b>
+{{
+  scale 0.75
+  skinparam LegendBackgroundColor transparent
+  skinparam LegendBorderColor transparent
+  skinparam backgroundColor transparent
+  hide stereotype
+
+
+  ' -class ProtectedSample << (C,#F6C344) >> {
+  '   - {field} subject: string
+  ' }
+
+  +class PublicSample << (C,#F6C344) >>  {
+    + {field} format: enum["json", "plain"] <b>"plain"</b>
+  }
+
+  legend left
+  |= Symbol |= Meaning |
+  | ProtectedSample | inferred field |
+  | PublicSample | user defined field |
+  endlegend
+
+
+}}
+
+{{
+  scale 0.75
+  skinparam LegendBackgroundColor transparent
+  skinparam LegendBorderColor transparent
+  skinparam backgroundColor transparent
+
+
+  legend right
+  |= Term |= Description |= Example |
+  | patterns | list of regular expressions --> regexp.MustCompile | <font:monospaced> ["(?i:fix\|feat).*"]</font> |
+  | CustomMeta | custom metadata | <font:monospaced> {"usermeta__git_source": "git.xyz.example.com/team/adr-1337"}</font> |
+  | Jinja2 template (MiniJinja) | string evaluated as a Jinja2 template with violation context | <font:monospaced> Violations:</font>\n<font:monospaced> {%- for v in violations %}</font>\n<font:monospaced> {{ v.text }}</font>\n<font:monospaced> {%- endfor %}</font> |
+  endlegend
+
+}}
+endlegend
+
+
+rectangle "Enums" {
+
+
+  enum MessageConditionKind {
+    msg_match
+  }
+
+  enum MessageMatchMode {
+    raw
+    title
+    body
+  }
+
+  enum DiffMatchType {
+    diff_match_any
+    diff_match_none
+  }
+
+  enum ThresholdConditionType {
+    threshold_compare
+  }
+
+  enum ThresholdMetric {
+    line_count
+    file_count
+  }
+
+  enum ThresholdOperator {
+    lte
+    gte
+  }
+  enum MetaConditionType {
+    branch_match
+  }
+}
+
+MetaCondition -[hidden]d-> Enums
+
+@enduml

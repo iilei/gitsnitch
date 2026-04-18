@@ -1,0 +1,36 @@
+# cargo-deny configuration for gitsnitch.
+# See https://embarkstudios.github.io/cargo-deny/
+
+[advisories]
+# Deny crates with known security vulnerabilities.
+ignore = []
+unmaintained = "workspace"
+
+[licenses]
+# Allow only well-known permissive / weak-copyleft licenses.
+# Deny anything that would impose strong copyleft or proprietary terms.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "ISC",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "Unicode-3.0",
+]
+unused-allowed-license = "allow"
+
+[bans]
+# Deny multiple versions of the same crate to keep the dependency tree clean.
+multiple-versions = "warn"
+# Deny wildcard dependencies (e.g. foo = "*").
+wildcards = "deny"
+# Deny known problematic crates.
+deny = []
+
+[sources]
+# Only allow crates from crates.io and the repo itself.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

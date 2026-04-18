@@ -1,0 +1,690 @@
+{
+  "$schema": "https://json-schema.org/draft/2019-09/schema",
+  "$id": "https://example.com/gitsnitch/api_v1.schema.json",
+  "title": "GitSnitch Config API (v1 draft)",
+  "type": "object",
+  "additionalProperties": false,
+  "description": "GitSnitch configuration: commit validation rules, history healing, and severity bands. All properties are optional except api_version.",
+  "properties": {
+    "api_version": {
+      "type": "string",
+      "enum": [
+        "pre"
+      ],
+      "default": "pre",
+      "description": "API version. 'pre' indicates canary/unreleased—the schema is subject to change without notice. Future versions will enforce forward compatibility, but 'pre' carries no contract."
+    },
+    "history": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/history"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": {
+        "autoheal_shallow": "incremental",
+        "autoheal_shallow_shift": 10,
+        "autoheal_shallow_tries": 6
+      },
+      "description": "Git history healing settings. Null uses defaults. All sub-fields are optional and default independently."
+    },
+    "custom_meta": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/customMeta"
+        }
+      ],
+      "default": {}
+    },
+    "violation_severity_as_exit_code": {
+      "$ref": "#/$defs/violationSeverityAsExitCode",
+      "default": false,
+      "description": "When true, the process exit code is the maximum violation severity (0 if all severities are 0). When false, violations do not affect process exit code."
+    },
+    "severity_bands": {
+      "$ref": "#/$defs/severityBands",
+      "default": {
+        "Fatal": 250,
+        "Error": 10,
+        "Warning": 1,
+        "Information": 0
+      },
+      "description": "Maps assertion severity (0–250) to band labels via threshold lookup. Default bands: Fatal (250), Error (10–249), Warning (1–9), Information (0).",
+      "examples": [
+        {
+          "Fatal": 200,
+          "Error": 10,
+          "Warning": 2,
+          "Information": 0
+        }
+      ]
+    },
+    "assertions": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/assertion"
+      },
+      "description": "List of validation assertions to apply to commits.",
+      "minItems": 0,
+      "maxItems": 1024,
+      "examples": [
+        [
+          {
+            "alias": "conventional-title",
+            "must_satisfy": {
+              "condition": {
+                "type": "msg_match",
+                "mode": "title",
+                "patterns": [
+                  "^(?i:feat|fix|docs|chore|refactor|test)(\\(.+\\))?: .+"
+                ]
+              }
+            }
+          },
+          {
+            "alias": "diff-size-threshold",
+            "must_satisfy": {
+              "condition": {
+                "type": "threshold_compare",
+                "metric": "line_count",
+                "operator": "lte",
+                "value": 500
+              }
+            }
+          }
+        ]
+      ]
+    }
+  },
+  "required": [
+    "api_version"
+  ],
+  "$defs": {
+    "patterns": {
+      "description": "Regex patterns used by condition-specific match scopes.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "description": "regex patterns",
+        "examples": [
+          "^feat:",
+          "(?i:breaking)",
+          "\\d{4}-\\d{2}-\\d{2}",
+          "^(docs|test)/"
+        ],
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2048,
+        "pattern": ".*\\S\\.*"
+      },
+      "uniqueItems": true,
+      "maxItems": 128
+    },
+    "history": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "autoheal_shallow": {
+          "type": "string",
+          "enum": [
+            "never",
+            "incremental",
+            "full"
+          ],
+          "default": "incremental",
+          "description": "Shallow history auto-heal strategy. incremental uses fixed exponential growth with factor 2."
+        },
+        "autoheal_shallow_shift": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 10,
+          "description": "Initial deepen size when autoheal_shallow is incremental. Sequence per try is shift * 2^(try-1)."
+        },
+        "autoheal_shallow_tries": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 6,
+          "description": "Maximum deepen attempts when autoheal_shallow is incremental."
+        }
+      },
+      "required": [],
+      "default": {
+        "autoheal_shallow": "incremental",
+        "autoheal_shallow_shift": 10,
+        "autoheal_shallow_tries": 6
+      }
+    },
+    "customMeta": {
+      "type": "object",
+      "description": "Extensible metadata bag. Validation rules can be tightened externally.",
+      "maxProperties": 16,
+      "minProperties": 0,
+      "propertyNames": {
+        "pattern": "^[a-zA-Z0-9_]+$"
+      },
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2048
+      },
+      "default": {}
+    },
+    "assertion": {
+      "type": "object",
+      "description": "Single validation rule with required alias and must_satisfy condition. Optional skip_if can short-circuit evaluation.",
+      "additionalProperties": false,
+      "properties": {
+        "skip": {
+          "type": "boolean",
+          "default": false,
+          "description": "If true, permanently disable this assertion (ignore must_satisfy and skip_if)."
+        },
+        "alias": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^\\S+$",
+          "description": "Human-readable identifier for this assertion. Must be unique within the config; uniqueness is enforced at config load time."
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 1024,
+          "default": "",
+          "description": "Human-readable description of what this assertion validates."
+        },
+        "banner": {
+          "type": "string",
+          "maxLength": 4096,
+          "default": "",
+          "description": "Violation banner as a Jinja2 template. Rendered with violation context. Empty string suppresses output."
+        },
+        "severity": {
+          "$ref": "#/$defs/assertionSeverity",
+          "description": "Numeric severity: 0–250. Higher means more severe. Mapped to band labels (Fatal, Error, Warning, Information) by severity_bands thresholds."
+        },
+        "hint": {
+          "type": "string",
+          "maxLength": 2048,
+          "default": "",
+          "description": "User-facing hint displayed when this assertion fails. Empty string suppresses hint."
+        },
+        "must_satisfy": {
+          "$ref": "#/$defs/conditionContainer",
+          "description": "Condition that must be true for the assertion to pass."
+        },
+        "skip_if": {
+          "$ref": "#/$defs/conditionContainer",
+          "description": "Optional condition: if true, skip this assertion (do not evaluate must_satisfy)."
+        }
+      },
+      "required": [
+        "alias",
+        "must_satisfy"
+      ],
+      "examples": [
+        {
+          "alias": "conventional-title",
+          "must_satisfy": {
+            "condition": {
+              "type": "msg_match",
+              "mode": "title",
+              "patterns": [
+                "^(?i:feat|fix|docs|chore|refactor|test)(\\(.+\\))?: .+"
+              ]
+            }
+          }
+        },
+        {
+          "alias": "raw-message-shape",
+          "must_satisfy": {
+            "condition": {
+              "type": "msg_match",
+              "mode": "raw",
+              "patterns": [
+                "^[^\\n]+$|\\S[^\\n]*\\n\\n\\s*\\S+"
+              ]
+            }
+          }
+        },
+        {
+          "alias": "diff-size-threshold",
+          "must_satisfy": {
+            "condition": {
+              "type": "threshold_compare",
+              "metric": "line_count",
+              "operator": "lte",
+              "value": 500
+            }
+          }
+        },
+        {
+          "alias": "no-unreviewed-trivyignore",
+          "must_satisfy": {
+            "condition": {
+              "type": "msg_match",
+              "mode": "body",
+              "patterns": [
+                "(^|\\n)Reviewed-By: @.+"
+              ]
+            }
+          },
+          "skip_if": {
+            "condition": {
+              "type": "diff_match_none",
+              "mode": "line",
+              "patterns": [
+                "#\\s*trivyignore"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "conditionContainer": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "condition": {
+          "$ref": "#/$defs/condition"
+        }
+      },
+      "required": [
+        "condition"
+      ]
+    },
+    "violationSeverityAsExitCode": {
+      "type": "boolean",
+      "default": false,
+      "description": "If true, exit with the maximum violation severity. If false, violations are exit-code silent."
+    },
+    "assertionSeverity": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 250,
+      "default": 10,
+      "description": "Severity numeric value (0–250). Higher = more severe. Mapped to band labels via severity_bands."
+    },
+    "severityBandThreshold": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 250,
+      "description": "Band threshold: severities >= this value are mapped to the band label."
+    },
+    "severityBands": {
+      "type": "object",
+      "description": "Fixed severity labels and lower-bound thresholds. Band resolution sorts thresholds by numeric value (descending) and picks the first threshold less than or equal to the assertion severity. Monotonic ordering and uniqueness are enforced at config-load time.",
+      "additionalProperties": false,
+      "properties": {
+        "Fatal": {
+          "$ref": "#/$defs/severityBandThreshold",
+          "default": 250,
+          "description": "Threshold for Fatal band (most severe)."
+        },
+        "Error": {
+          "$ref": "#/$defs/severityBandThreshold",
+          "default": 10,
+          "description": "Threshold for Error band."
+        },
+        "Warning": {
+          "$ref": "#/$defs/severityBandThreshold",
+          "default": 1,
+          "description": "Threshold for Warning band."
+        },
+        "Information": {
+          "$ref": "#/$defs/severityBandThreshold",
+          "default": 0,
+          "description": "Threshold for Information band (least severe)."
+        }
+      },
+      "required": [
+        "Fatal",
+        "Error",
+        "Warning",
+        "Information"
+      ]
+    },
+    "conditionBase": {
+      "type": "object",
+      "description": "Base properties shared by all condition types.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "maxLength": 256,
+          "default": "",
+          "description": "Human-readable name for this condition (for debugging/logging). Optional."
+        }
+      }
+    },
+    "condition": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/messageCondition"
+        },
+        {
+          "$ref": "#/$defs/diffMatchCondition"
+        },
+        {
+          "$ref": "#/$defs/metaCondition"
+        },
+        {
+          "$ref": "#/$defs/thresholdCondition"
+        }
+      ]
+    },
+    "messageCondition": {
+      "description": "Message matching with explicit scope selected by mode. raw matches full commit message text. title matches title only. body matches body only.",
+      "allOf": [
+        {
+          "$ref": "#/$defs/conditionBase"
+        }
+      ],
+      "oneOf": [
+        {
+          "description": "raw mode: patterns matched against the full commit message (title + body).",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string",
+              "maxLength": 256,
+              "default": ""
+            },
+            "type": {
+              "type": "string",
+              "const": "msg_match",
+              "description": "Message matching condition type."
+            },
+            "mode": {
+              "type": "string",
+              "const": "raw",
+              "description": "Match scope: raw—full commit message (title + body)."
+            },
+            "patterns": {
+              "$ref": "#/$defs/patterns"
+            }
+          },
+          "required": [
+            "type",
+            "mode",
+            "patterns"
+          ]
+        },
+        {
+          "description": "title mode: patterns matched against commit title only.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string",
+              "maxLength": 256,
+              "default": ""
+            },
+            "type": {
+              "type": "string",
+              "const": "msg_match",
+              "description": "Message matching condition type."
+            },
+            "mode": {
+              "type": "string",
+              "const": "title",
+              "description": "Match scope: title—commit title only."
+            },
+            "patterns": {
+              "$ref": "#/$defs/patterns"
+            }
+          },
+          "required": [
+            "type",
+            "mode",
+            "patterns"
+          ]
+        },
+        {
+          "description": "body mode: patterns matched against commit body only.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string",
+              "maxLength": 256,
+              "default": ""
+            },
+            "type": {
+              "type": "string",
+              "const": "msg_match",
+              "description": "Message matching condition type."
+            },
+            "mode": {
+              "type": "string",
+              "const": "body",
+              "description": "Match scope: body—commit body only."
+            },
+            "patterns": {
+              "$ref": "#/$defs/patterns"
+            }
+          },
+          "required": [
+            "type",
+            "mode",
+            "patterns"
+          ]
+        }
+      ]
+    },
+    "diffMatchCondition": {
+      "description": "Diff matching with explicit scope selected by mode. Raw mode matches unified diff text. file matches changed file paths. line matches changed lines regardless of whether each line was added or removed.",
+      "allOf": [
+        {
+          "$ref": "#/$defs/conditionBase"
+        }
+      ],
+      "oneOf": [
+        {
+          "description": "Raw mode: patterns are matched against the full unified diff text (headers + hunks). Use this when you need to inspect patch structure, e.g. detect file additions or added lines by matching diff markers such as 'new file mode', '+++ b/<path>', or '+'-prefixed added content lines.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string",
+              "maxLength": 256,
+              "default": ""
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "diff_match_any",
+                "diff_match_none"
+              ],
+              "description": "Diff matching semantics: _any (pass if ANY pattern matches), _none (pass if NO patterns match)."
+            },
+            "mode": {
+              "type": "string",
+              "const": "raw",
+              "description": "Match scope: raw—unified diff output."
+            },
+            "patterns": {
+              "$ref": "#/$defs/patterns",
+              "description": "Regex patterns evaluated against raw unified diff text. Example: detect whether file 'xyz' was added with '(?m)^\\+\\+\\+ b/xyz$'; detect whether a newly added line contains 'abc' with '(?m)^\\+.*abc.*$'."
+            }
+          },
+          "required": [
+            "type",
+            "mode",
+            "patterns"
+          ]
+        },
+        {
+          "description": "file mode: patterns matched against changed file paths only.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string",
+              "maxLength": 256,
+              "default": ""
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "diff_match_any",
+                "diff_match_none"
+              ],
+              "description": "Diff matching semantics: _any (pass if ANY pattern matches), _none (pass if NO patterns match)."
+            },
+            "mode": {
+              "type": "string",
+              "const": "file",
+              "description": "Match scope: file—changed file paths."
+            },
+            "patterns": {
+              "description": "Patterns matched against changed file paths in the diff.",
+              "$ref": "#/$defs/patterns"
+            }
+          },
+          "required": [
+            "type",
+            "mode",
+            "patterns"
+          ]
+        },
+        {
+          "description": "line mode: patterns matched against changed lines only, regardless of whether each line was added or removed.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string",
+              "maxLength": 256,
+              "default": ""
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "diff_match_any",
+                "diff_match_none"
+              ],
+              "description": "Diff matching semantics: _any (pass if ANY pattern matches), _none (pass if NO patterns match)."
+            },
+            "mode": {
+              "type": "string",
+              "const": "line",
+              "description": "Match scope: line—changed lines (added or removed)."
+            },
+            "patterns": {
+              "description": "Patterns matched against changed lines in the diff, regardless of whether the line was added or removed.",
+              "$ref": "#/$defs/patterns"
+            }
+          },
+          "required": [
+            "type",
+            "mode",
+            "patterns"
+          ]
+        }
+      ]
+    },
+    "metaCondition": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/conditionBase"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string",
+              "maxLength": 256,
+              "default": ""
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "branch_match"
+              ],
+              "description": "Metadata condition: match by branch name."
+            },
+            "patterns": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 128,
+              "default": [],
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048,
+                "pattern": ".*\\S\\.*",
+                "description": "Branch name pattern (regex)."
+              },
+              "description": "List of branch name patterns to match."
+            }
+          },
+          "required": [
+            "type"
+          ]
+        }
+      ]
+    },
+    "thresholdCondition": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/conditionBase"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string",
+              "maxLength": 256,
+              "default": ""
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "threshold_compare"
+              ],
+              "description": "Threshold condition: compare a metric against a numeric bound."
+            },
+            "metric": {
+              "type": "string",
+              "enum": [
+                "line_count",
+                "file_count"
+              ],
+              "description": "Metric to compare: line_count (total diff lines), file_count (number of changed files)."
+            },
+            "operator": {
+              "type": "string",
+              "enum": [
+                "lte",
+                "gte"
+              ],
+              "description": "Comparison operator: lte (less-than-or-equal), gte (greater-than-or-equal)."
+            },
+            "value": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000,
+              "description": "Threshold value for comparison (0–1,000,000)."
+            }
+          },
+          "required": [
+            "type",
+            "metric",
+            "operator",
+            "value"
+          ]
+        }
+      ]
+    }
+  },
+  "examples": [
+    {
+      "api_version": "pre"
+    }
+  ]
+}
