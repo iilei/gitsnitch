@@ -464,7 +464,8 @@ fn run(args: &Args) -> Result<(), AppError> {
         args.violation_severity_as_exit_code,
         config_violation_severity_as_exit_code,
     );
-    let collected_violations = violations::collect_violations(&lint_scope, &assertions, &history)?;
+    let collected_violations =
+        violations::collect_violations(&lint_scope, &assertions, &history, args.verbose)?;
     let violation_severities = collected_violations
         .iter()
         .map(|violation| violation.severity)

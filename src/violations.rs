@@ -50,23 +50,67 @@ fn run_git_capture(args: &[&str]) -> Result<String, AppError> {
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
+fn add_context(error: AppError, context: &str) -> AppError {
+    match error {
+        AppError::Message(message) => AppError::Message(format!("{context}: {message}")),
+        other => other,
+    }
+}
+
+fn log_autoheal(verbose: u8, level: u8, message: &str) {
+    if verbose >= level {
+        eprintln!("autoheal: {message}");
+    }
+}
+
 fn resolve_ref_range_commit_shas(
     source_ref: &str,
     target_ref: &str,
     history: &config::History,
+    verbose: u8,
 ) -> Result<Vec<String>, AppError> {
     let range = format!("{target_ref}..{source_ref}");
+    log_autoheal(
+        verbose,
+        2,
+        &format!(
+            "resolving commit range '{range}' with strategy={:?}",
+            history.autoheal_shallow
+        ),
+    );
 
     match collect_rev_list(&range) {
         Ok(commits) => Ok(commits),
-        Err(original_error) => match history.autoheal_shallow {
-            config::AutohealShallow::Never => Err(original_error),
-            config::AutohealShallow::Full => maybe_autoheal_shallow_full(&range, original_error),
-            config::AutohealShallow::Incremental => {
-                maybe_autoheal_shallow_incremental(&range, history, original_error)
+        Err(original_error) => {
+            log_autoheal(
+                verbose,
+                1,
+                "initial range resolution failed; attempting shallow-heal strategy",
+            );
+
+            match history.autoheal_shallow {
+                config::AutohealShallow::Never => Err(original_error),
+                config::AutohealShallow::Full => {
+                    maybe_autoheal_shallow_full(&range, original_error, verbose)
+                }
+                config::AutohealShallow::Incremental => {
+                    maybe_autoheal_shallow_incremental(&range, history, original_error, verbose)
+                }
             }
-        },
+        }
     }
+}
+
+fn is_shallow_for_heal(verbose: u8) -> Result<bool, AppError> {
+    let shallow = is_shallow_repository()?;
+    if !shallow {
+        log_autoheal(
+            verbose,
+            2,
+            "repository is not shallow; returning original ref resolution error",
+        );
+    }
+    Ok(shallow)
 }
 
 fn collect_rev_list(range: &str) -> Result<Vec<String>, AppError> {
@@ -83,35 +127,101 @@ fn collect_rev_list(range: &str) -> Result<Vec<String>, AppError> {
 fn maybe_autoheal_shallow_full(
     range: &str,
     original_error: AppError,
+    verbose: u8,
 ) -> Result<Vec<String>, AppError> {
-    if !is_shallow_repository()? {
+    if !is_shallow_for_heal(verbose)? {
         return Err(original_error);
     }
 
-    run_git_capture(&["fetch", "--all", "--unshallow", "--tags"])?;
-    collect_rev_list(range)
+    log_autoheal(
+        verbose,
+        1,
+        "strategy=full; running git fetch --all --unshallow --tags",
+    );
+    run_git_capture(&["fetch", "--all", "--unshallow", "--tags"]).map_err(|error| {
+        add_context(
+            error,
+            "shallow autoheal (full) failed while running git fetch --all --unshallow --tags",
+        )
+    })?;
+    collect_rev_list(range).map_err(|error| {
+        add_context(
+            error,
+            "shallow autoheal (full) fetch succeeded but range resolution still failed",
+        )
+    })
 }
 
 fn maybe_autoheal_shallow_incremental(
     range: &str,
     history: &config::History,
     original_error: AppError,
+    verbose: u8,
 ) -> Result<Vec<String>, AppError> {
-    if !is_shallow_repository()? {
+    if !is_shallow_for_heal(verbose)? {
         return Err(original_error);
     }
 
+    let mut last_range_error: Option<AppError> = None;
     for try_index in 0..history.autoheal_shallow_tries {
+        let try_number = try_index.checked_add(1).ok_or_else(|| {
+            AppError::Message("incremental shallow-heal try counter overflow".to_owned())
+        })?;
         let shift = incremental_deepen_step(history.autoheal_shallow_shift, try_index)?;
         let shift_str = shift.to_string();
-        run_git_capture(&["fetch", "--all", "--deepen", shift_str.as_str(), "--tags"])?;
+        log_autoheal(
+            verbose,
+            1,
+            &format!(
+                "strategy=incremental; try={}/{}; running git fetch --all --deepen {} --tags",
+                try_number, history.autoheal_shallow_tries, shift
+            ),
+        );
+        run_git_capture(&["fetch", "--all", "--deepen", shift_str.as_str(), "--tags"])
+            .map_err(|error| {
+                add_context(
+                    error,
+                    &format!(
+                        "shallow autoheal (incremental) failed on try {}/{} while running git fetch --all --deepen {} --tags",
+                        try_number,
+                        history.autoheal_shallow_tries,
+                        shift
+                    ),
+                )
+            })?;
 
-        if let Ok(commits) = collect_rev_list(range) {
-            return Ok(commits);
+        match collect_rev_list(range) {
+            Ok(commits) => {
+                log_autoheal(
+                    verbose,
+                    1,
+                    &format!(
+                        "range resolution succeeded after try {}/{}",
+                        try_number, history.autoheal_shallow_tries
+                    ),
+                );
+                return Ok(commits);
+            }
+            Err(error) => {
+                last_range_error = Some(add_context(
+                    error,
+                    &format!(
+                        "range resolution still failed after incremental try {}/{}",
+                        try_number, history.autoheal_shallow_tries
+                    ),
+                ));
+            }
         }
     }
 
-    Err(original_error)
+    if let Some(error) = last_range_error {
+        return Err(error);
+    }
+
+    Err(add_context(
+        original_error,
+        "range resolution failed and no incremental shallow-heal attempts were performed",
+    ))
 }
 
 fn incremental_deepen_step(base_shift: u32, try_index: u32) -> Result<u32, AppError> {
@@ -341,6 +451,7 @@ pub fn collect_violations(
     scope: &LintScope,
     assertions: &[config::Assertion],
     history: &config::History,
+    verbose: u8,
 ) -> Result<Vec<Violation>, AppError> {
     if assertions.is_empty() {
         return Ok(Vec::new());
@@ -351,7 +462,7 @@ pub fn collect_violations(
         LintScope::RefRange {
             source_ref,
             target_ref,
-        } => resolve_ref_range_commit_shas(source_ref, target_ref, history)?,
+        } => resolve_ref_range_commit_shas(source_ref, target_ref, history, verbose)?,
     };
 
     if shas.is_empty() {
