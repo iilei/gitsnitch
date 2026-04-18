@@ -260,12 +260,18 @@ One-off run prek (1)
 prek --stage manual --all-files
 ```
 
-Install pre-commit and pre-push hooks
+Install pre-commit, pre-push, and post-commit hooks
 
 ```
 prek install
 prek install --hook-type pre-push
+prek install --hook-type post-commit
 ```
+
+Configured automation highlights:
+
+* `pre-push`: runs quality/security hooks and `make maintenance`
+* `post-commit`: runs `make generate-coverage`
 
 
 ---

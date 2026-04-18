@@ -9,3 +9,4 @@
 # local IDE metadata
 .idea/
 .vscode
+lcov.info

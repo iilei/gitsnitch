@@ -156,7 +156,14 @@ fn check_git_installed() -> Result<(), AppError> {
 }
 
 fn check_is_repo() -> Result<(), AppError> {
+    let current_dir = env::current_dir()
+        .map_err(|error| AppError::Message(format!("failed to get current directory: {error}")))?;
+    check_is_repo_at(&current_dir)
+}
+
+fn check_is_repo_at(path: &Path) -> Result<(), AppError> {
     let output = Command::new("git")
+        .current_dir(path)
         .args(["rev-parse", "--is-inside-work-tree"])
         .output()
         .map_err(|error| AppError::Message(format!("failed to check git repository: {error}")))?;
@@ -178,7 +185,14 @@ fn check_is_repo() -> Result<(), AppError> {
 }
 
 fn git_repo_root() -> Result<PathBuf, AppError> {
+    let current_dir = env::current_dir()
+        .map_err(|error| AppError::Message(format!("failed to get current directory: {error}")))?;
+    git_repo_root_at(&current_dir)
+}
+
+fn git_repo_root_at(path: &Path) -> Result<PathBuf, AppError> {
     let output = Command::new("git")
+        .current_dir(path)
         .args(["rev-parse", "--show-toplevel"])
         .output()
         .map_err(|error| AppError::Message(format!("failed to find git repo root: {error}")))?;
@@ -634,12 +648,16 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::{
-        AppError, Args, DEFAULT_ENV_PREFIX, parse_remap_env_vars,
-        remapped_or_prefixed_env_non_empty_with_lookup, severity_band_label,
+        AppError, Args, DEFAULT_ENV_PREFIX, check_is_repo_at, git_repo_root_at,
+        parse_remap_env_vars, remapped_or_prefixed_env_non_empty_with_lookup, severity_band_label,
         validate_env_resolution_mode,
     };
     use crate::{config, violations};
     use std::collections::BTreeMap;
+    use std::fs;
+    use std::path::PathBuf;
+    use std::process::Command;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn test_args() -> Args {
         Args {
@@ -930,5 +948,114 @@ mod tests {
         };
 
         assert_eq!(rendered, "conventional-title");
+    }
+
+    #[test]
+    fn check_is_repo_at_returns_error_when_git_reports_false() {
+        let since_epoch = SystemTime::now().duration_since(UNIX_EPOCH);
+        assert!(since_epoch.is_ok());
+        let Ok(duration) = since_epoch else {
+            return;
+        };
+
+        let bare_repo_path = std::env::temp_dir().join(format!(
+            "gitsnitch-bare-{}-{}",
+            std::process::id(),
+            duration.as_nanos()
+        ));
+
+        let create_dir = fs::create_dir_all(&bare_repo_path);
+        assert!(create_dir.is_ok());
+
+        let init_status = Command::new("git")
+            .args(["init", "--bare"])
+            .current_dir(&bare_repo_path)
+            .status();
+        assert!(init_status.is_ok());
+        let Ok(status) = init_status else {
+            let _ = fs::remove_dir_all(&bare_repo_path);
+            return;
+        };
+        assert!(status.success());
+
+        let result = check_is_repo_at(PathBuf::as_path(&bare_repo_path));
+        let _ = fs::remove_dir_all(&bare_repo_path);
+
+        assert!(result.is_err());
+        let error_message = match result {
+            Err(AppError::Message(message)) => message,
+            Ok(()) | Err(_) => String::new(),
+        };
+        assert!(error_message.contains("current directory is not a git repository"));
+    }
+
+    #[test]
+    fn git_repo_root_at_returns_repo_root_from_nested_directory() {
+        let since_epoch = SystemTime::now().duration_since(UNIX_EPOCH);
+        assert!(since_epoch.is_ok());
+        let Ok(duration) = since_epoch else {
+            return;
+        };
+
+        let repo_path = std::env::temp_dir().join(format!(
+            "gitsnitch-root-{}-{}",
+            std::process::id(),
+            duration.as_nanos()
+        ));
+
+        let create_dir = fs::create_dir_all(&repo_path);
+        assert!(create_dir.is_ok());
+
+        let init_status = Command::new("git")
+            .args(["init"])
+            .current_dir(&repo_path)
+            .status();
+        assert!(init_status.is_ok());
+        let Ok(status) = init_status else {
+            let _ = fs::remove_dir_all(&repo_path);
+            return;
+        };
+        assert!(status.success());
+
+        let nested_path = repo_path.join("nested").join("deeper");
+        let nested_create = fs::create_dir_all(&nested_path);
+        assert!(nested_create.is_ok());
+
+        let result = git_repo_root_at(PathBuf::as_path(&nested_path));
+        let _ = fs::remove_dir_all(&repo_path);
+
+        assert!(result.is_ok());
+        let Ok(root) = result else {
+            return;
+        };
+        assert_eq!(root, repo_path);
+    }
+
+    #[test]
+    fn git_repo_root_at_returns_error_outside_repo() {
+        let since_epoch = SystemTime::now().duration_since(UNIX_EPOCH);
+        assert!(since_epoch.is_ok());
+        let Ok(duration) = since_epoch else {
+            return;
+        };
+
+        let outside_path = std::env::temp_dir().join(format!(
+            "gitsnitch-nonrepo-root-{}-{}",
+            std::process::id(),
+            duration.as_nanos()
+        ));
+
+        let create_dir = fs::create_dir_all(&outside_path);
+        assert!(create_dir.is_ok());
+
+        let result = git_repo_root_at(PathBuf::as_path(&outside_path));
+        let _ = fs::remove_dir_all(&outside_path);
+
+        assert!(result.is_err());
+        let error_message = match result {
+            Err(AppError::Message(message)) => message,
+            Ok(_) | Err(_) => String::new(),
+        };
+        assert!(error_message.contains("failed to determine git repository root"));
     }
 }

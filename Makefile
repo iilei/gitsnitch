@@ -2,6 +2,7 @@ SHELL := /bin/sh
 
 BIN_NAME := gitsnitch
 CARGO := $(shell command -v cargo 2>/dev/null || echo $(HOME)/.cargo/bin/cargo)
+LLVM_COV := $(shell [ -x "$(HOME)/.cargo/bin/cargo-llvm-cov" ] && echo "$(HOME)/.cargo/bin/cargo-llvm-cov" || command -v cargo-llvm-cov 2>/dev/null || echo cargo-llvm-cov)
 JSONSCHEMA := $(shell [ -x "$(HOME)/.cargo/bin/jsonschema-cli" ] && echo "$(HOME)/.cargo/bin/jsonschema-cli" || command -v jsonschema-cli 2>/dev/null || command -v jsonschema 2>/dev/null || echo jsonschema-cli)
 PLANTUML := $(shell command -v plantuml 2>/dev/null || echo plantuml)
 SCHEMA_DOC := $(shell command -v generate-schema-doc 2>/dev/null || echo generate-schema-doc)
@@ -16,7 +17,7 @@ endif
 BIN_DIR := bin
 BIN_PATH := $(BIN_DIR)/$(BIN_NAME)$(EXE_EXT)
 
-.PHONY: help local build test clippy fmt check quality clean install-tools validate-examples update-api-design-svg update-api-schema-md fmt-json docs maintenance
+.PHONY: help local build test clippy fmt check quality clean install-tools validate-examples update-api-design-svg update-api-schema-md fmt-json docs maintenance generate-coverage
 
 help:
 	@echo "Targets:"
@@ -27,6 +28,7 @@ help:
 	@echo "  fmt     - check formatting"
 	@echo "  check   - cargo check"
 	@echo "  quality - run core quality gates (fmt + clippy + test + check)"
+	@echo "  generate-coverage - generate test coverage report (LCOV + HTML)"
 	@echo "  maintenance - update lockfile + dependency hygiene checks"
 	@echo "  docs    - generate Rust API docs (no deps)"
 	@echo "  clean   - remove build artifacts"
@@ -65,6 +67,11 @@ maintenance:
 	$(CARGO) deny check
 	$(CARGO) test --all-features
 
+generate-coverage:
+	$(LLVM_COV) llvm-cov --all-features --workspace --lcov --output-path lcov.info
+	$(LLVM_COV) llvm-cov --all-features --workspace --html
+	@echo "Coverage outputs: lcov.info and target/llvm-cov/html"
+
 docs:
 	$(CARGO) doc --no-deps
 
@@ -72,7 +79,7 @@ clean:
 	$(CARGO) clean
 
 install-tools:
-	$(CARGO) install cargo-audit cargo-deny cargo-machete jsonschema-cli
+	$(CARGO) install cargo-audit cargo-deny cargo-machete cargo-llvm-cov jsonschema-cli
 
 validate-examples:
 	$(JSONSCHEMA) validate docs/api_design/api_v1.schema.json --instance docs/api_design/api_v1.example.json

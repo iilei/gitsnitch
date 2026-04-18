@@ -55,6 +55,22 @@ pass_filenames = false
 stages = ["pre-push", "manual"]
 
 [[repos.hooks]]
+id = "maintenance"
+name = "make maintenance"
+entry = "make maintenance"
+language = "system"
+pass_filenames = false
+stages = ["pre-push", "manual"]
+
+[[repos.hooks]]
+id = "generate-coverage"
+name = "make generate-coverage"
+entry = "make generate-coverage"
+language = "system"
+pass_filenames = false
+stages = ["post-commit", "manual"]
+
+[[repos.hooks]]
 id = "rust-machete"
 name = "cargo machete (unused deps)"
 entry = "cargo machete"
