@@ -118,6 +118,82 @@ fn write_config(repo: &Path, violation_mode: bool, severities: &[u8]) -> Result<
     Ok(config_path)
 }
 
+fn write_history_config(
+    repo: &Path,
+    autoheal_shallow: &str,
+    autoheal_shallow_shift: u32,
+    autoheal_shallow_tries: u32,
+) -> Result<PathBuf, String> {
+    let content = format!(
+        "api_version = \"pre\"\n\n[history]\nautoheal_shallow = \"{autoheal_shallow}\"\nautoheal_shallow_shift = {autoheal_shallow_shift}\nautoheal_shallow_tries = {autoheal_shallow_tries}\n"
+    );
+
+    let config_path = repo.join("history-config.toml");
+    fs::write(&config_path, content)
+        .map_err(|error| format!("failed to write '{}': {error}", config_path.display()))?;
+
+    Ok(config_path)
+}
+
+fn init_repo_with_linear_history(commit_count: usize) -> Result<TempDir, String> {
+    let temp = TempDir::new("gitsnitch-history")?;
+
+    run_git(&temp.path, &["init"])?;
+    run_git(&temp.path, &["config", "user.name", "Test User"])?;
+    run_git(&temp.path, &["config", "user.email", "test@example.com"])?;
+
+    if commit_count < 2 {
+        return Err("commit_count must be at least 2".to_owned());
+    }
+
+    for index in 1..=commit_count {
+        let file_name = format!("file-{index}.txt");
+        let file_path = temp.path.join(&file_name);
+        fs::write(&file_path, format!("line {index}\n"))
+            .map_err(|error| format!("failed to write '{}': {error}", file_path.display()))?;
+        run_git(&temp.path, &["add", &file_name])?;
+        run_git(
+            &temp.path,
+            &["commit", "-m", &format!("feat: commit {index}")],
+        )?;
+
+        if index == 1 {
+            run_git(&temp.path, &["branch", "base"])?;
+        }
+    }
+
+    run_git(&temp.path, &["branch", "feature"])?;
+
+    Ok(temp)
+}
+
+fn clone_shallow_repo(source: &Path) -> Result<TempDir, String> {
+    let clone_temp = TempDir::new("gitsnitch-shallow")?;
+    let source_str = source.to_str().ok_or_else(|| {
+        format!(
+            "invalid source path '{}': not valid UTF-8",
+            source.display()
+        )
+    })?;
+    run_git(&clone_temp.path, &["init"])?;
+    run_git(&clone_temp.path, &["remote", "add", "origin", source_str])?;
+    run_git(
+        &clone_temp.path,
+        &["fetch", "--depth", "1", "origin", "master"],
+    )?;
+    run_git(
+        &clone_temp.path,
+        &["checkout", "-b", "master", "FETCH_HEAD"],
+    )?;
+
+    let is_shallow = run_git(&clone_temp.path, &["rev-parse", "--is-shallow-repository"])?;
+    if is_shallow != "true" {
+        return Err("clone is not shallow as expected".to_owned());
+    }
+
+    Ok(clone_temp)
+}
+
 #[test]
 fn violations_are_exit_silent_when_mode_is_disabled() {
     let setup = init_repo_with_single_commit();
@@ -214,4 +290,84 @@ fn non_repo_failures_use_reserved_internal_exit_range() {
     };
 
     assert!((251..=255).contains(&code));
+}
+
+#[test]
+fn shallow_ref_range_runs_with_autoheal_never() {
+    let setup = init_repo_with_linear_history(3);
+    assert!(setup.is_ok());
+    let Ok(source_repo) = setup else {
+        return;
+    };
+
+    let shallow_clone = clone_shallow_repo(&source_repo.path);
+    assert!(shallow_clone.is_ok());
+    let Ok(clone_repo) = shallow_clone else {
+        return;
+    };
+
+    let cfg = write_history_config(&clone_repo.path, "never", 1, 3);
+    assert!(cfg.is_ok());
+    let Ok(cfg_path) = cfg else {
+        return;
+    };
+
+    let cfg_path_str = cfg_path.to_string_lossy().to_string();
+    let exit = run_gitsnitch(
+        &clone_repo.path,
+        &[
+            "--config",
+            &cfg_path_str,
+            "--source-ref",
+            "origin/feature",
+            "--target-ref",
+            "HEAD",
+        ],
+    );
+    assert!(exit.is_ok());
+    let Ok(code) = exit else {
+        return;
+    };
+
+    assert_eq!(code, 0);
+}
+
+#[test]
+fn shallow_ref_range_succeeds_with_incremental_autoheal() {
+    let setup = init_repo_with_linear_history(3);
+    assert!(setup.is_ok());
+    let Ok(source_repo) = setup else {
+        return;
+    };
+
+    let shallow_clone = clone_shallow_repo(&source_repo.path);
+    assert!(shallow_clone.is_ok());
+    let Ok(clone_repo) = shallow_clone else {
+        return;
+    };
+
+    let cfg = write_history_config(&clone_repo.path, "incremental", 1, 3);
+    assert!(cfg.is_ok());
+    let Ok(cfg_path) = cfg else {
+        return;
+    };
+
+    let cfg_path_str = cfg_path.to_string_lossy().to_string();
+    let exit = run_gitsnitch(
+        &clone_repo.path,
+        &[
+            "--config",
+            &cfg_path_str,
+            "--source-ref",
+            "origin/feature",
+            "--target-ref",
+            "HEAD",
+        ],
+    );
+    assert!(exit.is_ok());
+    let Ok(code) = exit else {
+        return;
+    };
+
+    assert_eq!(code, 0);
 }

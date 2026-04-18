@@ -18,6 +18,30 @@ Think of it as a linter, but for commit hygiene — enforced consistently across
 * **Shallow clone healing** — automatically deepens shallow CI checkouts before linting
 * **Remediation hints** — show actionable guidance on violation via Jinja2 banner templates
 
+## CI Authentication for Shallow Autoheal
+
+When linting a ref range in a shallow checkout, gitsnitch may run `git fetch` to deepen history.
+
+Requirement:
+
+* The CI job must have credentials that allow `git fetch` from `origin`.
+
+Common setups:
+
+* CI-native checkout token persisted for later fetches.
+* Git credential helper configured in the runner.
+* Optional `.netrc` in environments where that is the preferred auth mechanism.
+
+Example `.netrc` (optional):
+
+```text
+machine github.com
+	login x-access-token
+	password ${GITHUB_TOKEN}
+```
+
+If credentials are missing, shallow autoheal fetches will fail and gitsnitch will return an internal/runtime error (`251..255`).
+
 
 ## Configuration
 
