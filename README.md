@@ -17,6 +17,33 @@ Think of it as a linter, but for commit hygiene — enforced consistently across
 * **Severity-as-exit optional mode** — when enabled, exit with the maximum violation severity; internal/runtime errors are reserved to 251–255
 * **Shallow clone healing** — automatically deepens shallow CI checkouts before linting
 * **Remediation hints** — show actionable guidance on violation via Jinja2 banner templates
+* **Named assertion presets** — select embedded preset assertion bundles with repeatable `--preset` flags
+
+## Named Presets
+
+Presets provide assertion bundles (including assertion-level `banner` and `hint` templates) and are selected at runtime via CLI only.
+
+Rules:
+
+* Presets do not carry root config (no `history`, no `severity_bands`, no global switches).
+* Presets are embedded at build-time from snake_case preset files.
+* Runtime selection uses dash-case names via repeatable `--preset` flags.
+* Selected preset assertions are appended to config assertions.
+* Assertion aliases must be globally unique across config + all selected presets; duplicates fail as a config error.
+
+Examples:
+
+```sh
+gitsnitch --preset conventional-commits --commit-sha <sha>
+```
+
+```sh
+gitsnitch \
+	--preset conventional-commits \
+	--preset another-preset \
+	--source-ref <source-ref> \
+	--target-ref <target-ref>
+```
 
 ## CI Authentication for Shallow Autoheal
 

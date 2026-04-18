@@ -12,6 +12,7 @@ use thiserror::Error;
 
 mod config;
 mod exit_codes;
+mod presets;
 mod violations;
 
 const EXIT_INTERNAL_GENERIC: i32 = 251;
@@ -41,6 +42,10 @@ struct Args {
     /// Add root-level custom metadata entry (key=value), repeatable.
     #[arg(long = "custom-meta")]
     custom_meta: Vec<String>,
+
+    /// Select one or more embedded presets by name (dash-case), repeatable.
+    #[arg(long = "preset")]
+    preset: Vec<String>,
 
     /// Commit SHA to lint
     #[arg(long)]
@@ -404,6 +409,7 @@ fn read_config_content(config_source: &ConfigSource) -> Result<Option<String>, A
 fn run(args: &Args) -> Result<(), AppError> {
     validate_custom_meta(&args.custom_meta)?;
     validate_env_resolution_mode(args)?;
+    presets::validate_cli_preset_names(&args.preset)?;
 
     let remap_env_vars = parse_remap_env_vars(&args.remap_env_var)?;
     if args.verbose >= 3 {
@@ -459,6 +465,10 @@ fn run(args: &Args) -> Result<(), AppError> {
     } else {
         None
     };
+
+    let preset_assertions = presets::select_assertions_from_presets(&args.preset)?;
+    assertions.extend(preset_assertions);
+    config::validate_assertions(&assertions)?;
 
     let effective_violation_severity_as_exit_code = resolve_violation_severity_exit_switch(
         args.violation_severity_as_exit_code,
@@ -637,6 +647,7 @@ mod tests {
             verbose: 0,
             violation_severity_as_exit_code: None,
             custom_meta: vec![],
+            preset: vec![],
             commit_sha: None,
             source_ref: None,
             target_ref: None,

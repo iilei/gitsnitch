@@ -289,11 +289,16 @@ pub fn parse(content: &str, source_path: Option<&Path>) -> Result<Config, Config
 // ── Semantic validation ───────────────────────────────────────────────────────
 
 fn validate(config: Config) -> Result<Config, ConfigError> {
-    validate_assertion_aliases(&config.assertions)?;
-    validate_assertion_severities(&config.assertions)?;
-    validate_assertion_patterns(&config.assertions)?;
+    validate_assertions(&config.assertions)?;
     validate_severity_bands(&config.severity_bands)?;
     Ok(config)
+}
+
+pub fn validate_assertions(assertions: &[Assertion]) -> Result<(), ConfigError> {
+    validate_assertion_aliases(assertions)?;
+    validate_assertion_severities(assertions)?;
+    validate_assertion_patterns(assertions)?;
+    Ok(())
 }
 
 fn validate_assertion_aliases(assertions: &[Assertion]) -> Result<(), ConfigError> {

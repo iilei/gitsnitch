@@ -1,0 +1,17 @@
+[[assertions]]
+alias = "preset_forbid_wip"
+description = "Disallow work-in-progress commit titles"
+banner = "Commit title must not start with WIP."
+hint = "Replace the WIP prefix with the actual change intent before committing."
+severity = 60
+
+[assertions.must_satisfy]
+[assertions.must_satisfy.condition]
+type = "msg_match"
+mode = "title"
+patterns = [
+    "^[^Ww].*",
+    "^[Ww][^Ii].*",
+    "^[Ww][Ii][^Pp].*",
+    "^[Ww][Ii][Pp][A-Za-z0-9].*",
+]

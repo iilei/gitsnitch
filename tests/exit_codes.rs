@@ -54,6 +54,12 @@ fn run_git(repo: &Path, args: &[&str]) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
 }
 
+fn run_git_commit(repo: &Path, args: &[&str]) -> Result<String, String> {
+    let mut command = vec!["-c", "commit.gpgsign=false", "commit"];
+    command.extend_from_slice(args);
+    run_git(repo, &command)
+}
+
 fn run_gitsnitch(cwd: &Path, args: &[&str]) -> Result<i32, String> {
     let bin = std::env::var("CARGO_BIN_EXE_gitsnitch")
         .map_err(|error| format!("missing CARGO_BIN_EXE_gitsnitch env var: {error}"))?;
@@ -81,10 +87,7 @@ fn init_repo_with_single_commit() -> Result<(TempDir, String), String> {
         .map_err(|error| format!("failed to write '{}': {error}", file_path.display()))?;
 
     run_git(&temp.path, &["add", "README.md"])?;
-    run_git(
-        &temp.path,
-        &["commit", "-m", "feat: seed", "-m", "body text"],
-    )?;
+    run_git_commit(&temp.path, &["-m", "feat: seed", "-m", "body text"])?;
 
     let sha = run_git(&temp.path, &["rev-parse", "HEAD"])?;
     Ok((temp, sha))
@@ -112,6 +115,31 @@ fn write_config(repo: &Path, violation_mode: bool, severities: &[u8]) -> Result<
     }
 
     let config_path = repo.join("test-config.toml");
+    fs::write(&config_path, content)
+        .map_err(|error| format!("failed to write '{}': {error}", config_path.display()))?;
+
+    Ok(config_path)
+}
+
+fn write_config_without_assertions(repo: &Path, violation_mode: bool) -> Result<PathBuf, String> {
+    let content = format!(
+        "api_version = \"pre\"\nviolation_severity_as_exit_code = {}\n",
+        if violation_mode { "true" } else { "false" }
+    );
+
+    let config_path = repo.join("test-config-no-assertions.toml");
+    fs::write(&config_path, content)
+        .map_err(|error| format!("failed to write '{}': {error}", config_path.display()))?;
+
+    Ok(config_path)
+}
+
+fn write_config_with_alias(repo: &Path, alias: &str) -> Result<PathBuf, String> {
+    let content = format!(
+        "api_version = \"pre\"\n\n[[assertions]]\nalias = \"{alias}\"\nseverity = 10\n[assertions.must_satisfy]\n[assertions.must_satisfy.condition]\ntype = \"msg_match\"\nmode = \"raw\"\npatterns = [\"^THIS_PATTERN_NEVER_MATCHES$\"]\n"
+    );
+
+    let config_path = repo.join("test-config-with-alias.toml");
     fs::write(&config_path, content)
         .map_err(|error| format!("failed to write '{}': {error}", config_path.display()))?;
 
@@ -152,10 +180,7 @@ fn init_repo_with_linear_history(commit_count: usize) -> Result<TempDir, String>
         fs::write(&file_path, format!("line {index}\n"))
             .map_err(|error| format!("failed to write '{}': {error}", file_path.display()))?;
         run_git(&temp.path, &["add", &file_name])?;
-        run_git(
-            &temp.path,
-            &["commit", "-m", &format!("feat: commit {index}")],
-        )?;
+        run_git_commit(&temp.path, &["-m", &format!("feat: commit {index}")])?;
 
         if index == 1 {
             run_git(&temp.path, &["branch", "base"])?;
@@ -370,4 +395,142 @@ fn shallow_ref_range_succeeds_with_incremental_autoheal() {
     };
 
     assert_eq!(code, 0);
+}
+
+#[test]
+fn selecting_preset_extends_assertions_and_can_fail_with_severity_exit() {
+    let setup = init_repo_with_single_commit();
+    assert!(setup.is_ok());
+    let Ok((repo, sha)) = setup else {
+        return;
+    };
+
+    let cfg = write_config_without_assertions(&repo.path, true);
+    assert!(cfg.is_ok());
+    let Ok(cfg_path) = cfg else {
+        return;
+    };
+
+    let cfg_path_str = cfg_path.to_string_lossy().to_string();
+    let exit = run_gitsnitch(
+        &repo.path,
+        &[
+            "--config",
+            &cfg_path_str,
+            "--commit-sha",
+            &sha,
+            "--preset",
+            "conventional-commits",
+        ],
+    );
+    assert!(exit.is_ok());
+    let Ok(code) = exit else {
+        return;
+    };
+
+    assert_eq!(code, 0);
+}
+
+#[test]
+fn unknown_preset_exits_with_internal_config_code() {
+    let setup = init_repo_with_single_commit();
+    assert!(setup.is_ok());
+    let Ok((repo, sha)) = setup else {
+        return;
+    };
+
+    let cfg = write_config_without_assertions(&repo.path, false);
+    assert!(cfg.is_ok());
+    let Ok(cfg_path) = cfg else {
+        return;
+    };
+
+    let cfg_path_str = cfg_path.to_string_lossy().to_string();
+    let exit = run_gitsnitch(
+        &repo.path,
+        &[
+            "--config",
+            &cfg_path_str,
+            "--commit-sha",
+            &sha,
+            "--preset",
+            "unknown-preset",
+        ],
+    );
+    assert!(exit.is_ok());
+    let Ok(code) = exit else {
+        return;
+    };
+
+    assert_eq!(code, 252);
+}
+
+#[test]
+fn duplicate_alias_between_config_and_preset_exits_with_internal_config_code() {
+    let setup = init_repo_with_single_commit();
+    assert!(setup.is_ok());
+    let Ok((repo, sha)) = setup else {
+        return;
+    };
+
+    let cfg = write_config_with_alias(&repo.path, "preset_conventional_title");
+    assert!(cfg.is_ok());
+    let Ok(cfg_path) = cfg else {
+        return;
+    };
+
+    let cfg_path_str = cfg_path.to_string_lossy().to_string();
+    let exit = run_gitsnitch(
+        &repo.path,
+        &[
+            "--config",
+            &cfg_path_str,
+            "--commit-sha",
+            &sha,
+            "--preset",
+            "conventional-commits",
+        ],
+    );
+    assert!(exit.is_ok());
+    let Ok(code) = exit else {
+        return;
+    };
+
+    assert_eq!(code, 252);
+}
+
+#[test]
+fn duplicate_alias_between_selected_presets_exits_with_internal_config_code() {
+    let setup = init_repo_with_single_commit();
+    assert!(setup.is_ok());
+    let Ok((repo, sha)) = setup else {
+        return;
+    };
+
+    let cfg = write_config_without_assertions(&repo.path, false);
+    assert!(cfg.is_ok());
+    let Ok(cfg_path) = cfg else {
+        return;
+    };
+
+    let cfg_path_str = cfg_path.to_string_lossy().to_string();
+    let exit = run_gitsnitch(
+        &repo.path,
+        &[
+            "--config",
+            &cfg_path_str,
+            "--commit-sha",
+            &sha,
+            "--preset",
+            "conventional-commits",
+            "--preset",
+            "conventional-commits",
+        ],
+    );
+    assert!(exit.is_ok());
+    let Ok(code) = exit else {
+        return;
+    };
+
+    assert_eq!(code, 252);
 }
