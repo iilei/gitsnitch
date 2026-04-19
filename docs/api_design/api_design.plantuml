@@ -207,7 +207,8 @@ rectangle "Enums" {
 
 
   enum MessageConditionKind {
-    msg_match
+    msg_match_any
+    msg_match_none
   }
 
   enum MessageMatchMode {

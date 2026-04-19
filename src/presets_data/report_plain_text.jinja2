@@ -1,0 +1,27 @@
+GitSnitch summary
+********************************************************************
+Violations:
+********************************************************************
+{% if report.violation_banners | length == 0 -%}
+No violations.
+{%- else -%}
+{%- for item in report.violation_banners %}
+{% if item.text and item.text | trim | length > 0 -%}
+{{ item.text | trim }}
+{%- else -%}
+{{ item.code | trim }}
+{%- endif %}
+
+Commits:
+{% if item.commit_sha_shorts and item.commit_sha_shorts | length > 0 -%}
+{% for sha in item.commit_sha_shorts -%}
+- {{ sha }}
+{% endfor -%}
+{%- else -%}
+- (n/a)
+{%- endif %}
+
+--------------------------------------------------------------------
+
+{%- endfor %}
+{%- endif %}

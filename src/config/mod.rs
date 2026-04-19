@@ -3,15 +3,14 @@
 //! Supported formats: TOML, JSON, JSON5, YAML.
 //! Format is detected by file extension; extensionless files (e.g. `.gitsnitchrc`) are parsed as TOML.
 
-// TODO remove this before first release
-#![allow(dead_code)]
-
 use std::collections::HashMap;
 use std::path::Path;
 
 use regex::Regex;
 use serde::Deserialize;
 use thiserror::Error;
+
+const MAX_SEVERITY: u8 = 250;
 
 // ── Error ────────────────────────────────────────────────────────────────────
 
@@ -290,6 +289,9 @@ pub fn parse(content: &str, source_path: Option<&Path>) -> Result<Config, Config
 // ── Semantic validation ───────────────────────────────────────────────────────
 
 fn validate(config: Config) -> Result<Config, ConfigError> {
+    match &config.api_version {
+        ApiVersion::Pre => {}
+    }
     validate_assertions(&config.assertions)?;
     validate_severity_bands(&config.severity_bands)?;
     Ok(config)
@@ -317,7 +319,7 @@ fn validate_assertion_aliases(assertions: &[Assertion]) -> Result<(), ConfigErro
 
 fn validate_assertion_severities(assertions: &[Assertion]) -> Result<(), ConfigError> {
     for assertion in assertions {
-        if assertion.severity > 250 {
+        if assertion.severity > MAX_SEVERITY {
             return Err(ConfigError::Semantic(format!(
                 "assertion '{}' has severity {} which must be <= 250",
                 assertion.alias, assertion.severity
@@ -370,29 +372,17 @@ fn validate_condition_patterns(
 }
 
 fn validate_severity_bands(bands: &SeverityBands) -> Result<(), ConfigError> {
-    if bands.fatal > 250 {
-        return Err(ConfigError::Semantic(format!(
-            "severity_bands: Fatal ({}) must be <= 250",
-            bands.fatal
-        )));
-    }
-    if bands.error > 250 {
-        return Err(ConfigError::Semantic(format!(
-            "severity_bands: Error ({}) must be <= 250",
-            bands.error
-        )));
-    }
-    if bands.warning > 250 {
-        return Err(ConfigError::Semantic(format!(
-            "severity_bands: Warning ({}) must be <= 250",
-            bands.warning
-        )));
-    }
-    if bands.information > 250 {
-        return Err(ConfigError::Semantic(format!(
-            "severity_bands: Information ({}) must be <= 250",
-            bands.information
-        )));
+    for (name, value) in [
+        ("Fatal", bands.fatal),
+        ("Error", bands.error),
+        ("Warning", bands.warning),
+        ("Information", bands.information),
+    ] {
+        if value > MAX_SEVERITY {
+            return Err(ConfigError::Semantic(format!(
+                "severity_bands: {name} ({value}) must be <= 250"
+            )));
+        }
     }
 
     // Bands must be strictly monotonic: Fatal > Error > Warning >= Information.

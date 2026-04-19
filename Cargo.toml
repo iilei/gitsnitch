@@ -35,7 +35,6 @@ string_slice = "deny"
 arithmetic_side_effects = "deny"
 float_arithmetic = "deny"
 
-# Todo fix
 [package.metadata.cargo-machete]
 ignored = ["serde", "thiserror", "toml"]
 

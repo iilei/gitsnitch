@@ -11,6 +11,7 @@
 - [ ] Inputs validated (ranges, schema assumptions, nullability).
 - [ ] Outputs are deterministic given the same inputs (if required by component).
 - [ ] Failure modes are explicit and safe (no silent partial results).
+- [ ] New env-var settings are justified for CI portability; prefer flags for policy/behavior knobs.
 
 ## Operability
 - [ ] Logs/metrics are adequate and do not leak secrets.

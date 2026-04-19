@@ -31,6 +31,13 @@ Rules:
 * Selected preset assertions are appended to config assertions.
 * Assertion aliases must be globally unique across config + all selected presets; duplicates fail as a config error.
 
+Available presets (CLI names):
+
+* `conventional-commits`
+* `title-body-seperator`
+* `forbid-wip`
+* `security-related-edits-mention`
+
 Examples:
 
 ```sh
@@ -40,35 +47,124 @@ gitsnitch --preset conventional-commits --commit-sha <sha>
 ```sh
 gitsnitch \
 	--preset conventional-commits \
-	--preset another-preset \
+	--preset forbid-wip \
 	--source-ref <source-ref> \
 	--target-ref <target-ref>
 ```
 
-## CI Authentication for Shallow Autoheal
+### Self-authoring presets
 
-When linting a ref range in a shallow checkout, gitsnitch may run `git fetch` to deepen history.
+Use the embedded preset files as inspiration:
 
-Requirement:
+* [src/presets_data/conventional_commits.toml](src/presets_data/conventional_commits.toml)
+* [src/presets_data/title_body_seperator.toml](src/presets_data/title_body_seperator.toml)
+* [src/presets_data/forbid_wip.toml](src/presets_data/forbid_wip.toml)
+* [src/presets_data/security_related_edits_mention.toml](src/presets_data/security_related_edits_mention.toml)
 
-* The CI job must have credentials that allow `git fetch` from `origin`.
+Authoring guidance:
 
-Common setups:
+* Preset content is assertion-only (no root-level history, severity_bands, or global switches).
+* For project-local customization, copy/adapt assertion blocks into your shared config file.
 
-* CI-native checkout token persisted for later fetches.
-* Git credential helper configured in the runner.
-* Optional `.netrc` in environments where that is the preferred auth mechanism.
+## Workflows by Role
 
-Example `.netrc` (optional):
+### Developers (local)
 
-```text
-machine github.com
-	login x-access-token
-	password ${GITHUB_TOKEN}
+1. Keep a shared repo config (`.gitsnitch.toml` or equivalent).
+2. Lint a single commit while iterating:
+
+```sh
+gitsnitch --commit-sha <sha>
 ```
 
-If credentials are missing, shallow autoheal fetches will fail and gitsnitch will return an internal/runtime error (`251..255`).
+3. Reuse named presets when needed:
 
+```sh
+gitsnitch --preset conventional-commits --commit-sha <sha>
+```
+
+### CI/CD orchestrators
+
+Use flags for policy and behavior; use env only to wire runtime context.
+
+```sh
+gitsnitch \
+	--source-ref "$GITHUB_SHA" \
+	--target-ref "origin/${GITHUB_BASE_REF}" \
+	--config .gitsnitch.toml \
+	--violation-severity-as-exit-code
+```
+
+```sh
+gitsnitch \
+	--source-ref "$CI_COMMIT_SHA" \
+	--target-ref "origin/main" \
+	--config .gitsnitch.toml \
+	--render-output json-compact
+```
+
+### Policy designers
+
+1. Define assertions and severity bands in config.
+2. Optionally bundle reusable assertion sets as presets.
+3. Keep policy stable in config and avoid environment-specific policy overrides.
+
+## Runtime Inputs and Precedence
+
+gitsnitch needs an explicit lint scope. Choose exactly one mode:
+
+1. `--commit-sha <sha>`
+2. `--source-ref <source-ref> --target-ref <target-ref>`
+
+Rules:
+
+* `--commit-sha` is mutually exclusive with `--source-ref` and `--target-ref`.
+* `--source-ref` and `--target-ref` must be provided together.
+* If none are provided, gitsnitch fails with an explicit error.
+
+Global precedence model:
+
+1. CLI flags
+2. env vars (supported runtime context keys only)
+3. config file
+4. built-in defaults
+
+### Environment variable scope
+
+Supported canonical runtime keys:
+
+* `GITSNITCH_CONFIG_ROOT`
+* `GITSNITCH_COMMIT_SHA`
+* `GITSNITCH_SOURCE_REF`
+* `GITSNITCH_TARGET_REF`
+
+Scope note:
+
+* Env vars are for runtime context wiring only.
+* Policy/config settings are expected to come from CLI flags or config file.
+
+You can change the prefix with `--env-prefix`:
+
+```sh
+gitsnitch --env-prefix CI_
+# reads CI_CONFIG_ROOT, CI_COMMIT_SHA, CI_SOURCE_REF, CI_TARGET_REF
+```
+
+You can also remap canonical keys to arbitrary env var names:
+
+```sh
+gitsnitch \
+	--remap-env-var GITSNITCH_SOURCE_REF=PRE_COMMIT_TO_REF \
+	--remap-env-var GITSNITCH_TARGET_REF=PRE_COMMIT_FROM_REF
+```
+
+Remap rules:
+
+* Format must be `KEY=ENV_VAR`.
+* `ENV_VAR` must be non-empty.
+* A key can only be remapped once.
+* For a remapped key, gitsnitch reads only the remapped env var (no fallback).
+* `--remap-env-var` is mutually exclusive with non-default `--env-prefix`.
 
 ## Configuration
 
@@ -139,111 +235,64 @@ Examples:
 CLI override:
 
 ```sh
-gitsnitch --violation-severity-as-exit-code true ...
+gitsnitch --violation-severity-as-exit-code ...
+```
+
+Disable from CLI (even if config enables it):
+
+```sh
+gitsnitch --no-violation-severity-as-exit-code ...
 ```
 
 Precedence:
 
-1. CLI `--violation-severity-as-exit-code`
+1. CLI `--violation-severity-as-exit-code` or `--no-violation-severity-as-exit-code`
 2. config `violation_severity_as_exit_code`
 3. default `false`
 
-## Lint Scope Input Contract
+### Output format
 
-gitsnitch requires an explicit lint scope. Choose exactly one mode:
-
-1. Single commit mode:
+By default, `gitsnitch` renders pretty JSON:
 
 ```sh
-gitsnitch --commit-sha <sha>
+gitsnitch --render-output json ...
 ```
 
-2. Ref range mode:
+Use compact single-line JSON when needed:
 
 ```sh
-gitsnitch --source-ref <source-ref> --target-ref <target-ref>
+gitsnitch --render-output json-compact ...
 ```
 
-Rules:
-
-* `--commit-sha` is mutually exclusive with `--source-ref` and `--target-ref`.
-* `--source-ref` and `--target-ref` must be provided together.
-* If none are provided, gitsnitch fails with an explicit error.
-
-## Environment Variable Remapping
-
-gitsnitch resolves runtime env vars using canonical keys and explicit remapping controls. It does not include built-in CI provider variable names.
-
-With the default prefix (`GITSNITCH_`), the following keys are supported:
-
-* `GITSNITCH_CONFIG_ROOT`
-* `GITSNITCH_COMMIT_SHA`
-* `GITSNITCH_SOURCE_REF`
-* `GITSNITCH_TARGET_REF`
-
-You can change the prefix with `--env-prefix`:
+Use the internal human-friendly text renderer:
 
 ```sh
-gitsnitch --env-prefix CI_
+gitsnitch --render-output text-plain ...
 ```
 
-This changes lookups to:
+## CI Authentication for Shallow Autoheal
 
-* `CI_CONFIG_ROOT`
-* `CI_COMMIT_SHA`
-* `CI_SOURCE_REF`
-* `CI_TARGET_REF`
+When linting a ref range in a shallow checkout, gitsnitch may run `git fetch` to deepen history.
 
-### Direct key remapping
+Requirement:
 
-If prefix-only namespacing is not sufficient, you can remap canonical `GITSNITCH_*` keys to arbitrary env var names with repeatable `--remap-env-var` flags:
+* CI credentials must allow `git fetch` from `origin`.
 
-```sh
-gitsnitch \
-	--remap-env-var GITSNITCH_SOURCE_REF=PRE_COMMIT_TO_REF \
-	--remap-env-var GITSNITCH_TARGET_REF=PRE_COMMIT_FROM_REF
+Common setups:
+
+* CI-native checkout token persisted for later fetches.
+* Git credential helper configured in the runner.
+* Optional `.netrc` in environments where that is preferred.
+
+Example `.netrc`:
+
+```text
+machine github.com
+	login x-access-token
+	password ${GITHUB_TOKEN}
 ```
 
-Supported remap keys are:
-
-* `GITSNITCH_SOURCE_REF`
-* `GITSNITCH_TARGET_REF`
-* `GITSNITCH_COMMIT_SHA`
-* `GITSNITCH_CONFIG_ROOT`
-
-Rules:
-
-* Format must be `KEY=ENV_VAR`.
-* `ENV_VAR` must be non-empty.
-* A key can only be remapped once.
-* For a remapped key, gitsnitch reads only the remapped env var (no fallback to prefixed key for that key).
-* `--remap-env-var` is mutually exclusive with non-default `--env-prefix` values.
-
-Precedence per canonical key:
-
-1. CLI flag (for example, `--source-ref`)
-2. `--remap-env-var  KEY=ENV_VAR` lookup
-3. `--env-prefix` lookup (`{PREFIX}{KEY}`), only when that key is not remapped
-
-### Example invocations
-
-1. pre-commit/prek pre-push env vars remapped
-
-For pre-push, `SOURCE_REF` maps to the pushed head (`PRE_COMMIT_TO_REF`) and `TARGET_REF` maps to the remote base (`PRE_COMMIT_FROM_REF`).
-
-```sh
-gitsnitch \
-	--remap-env-var GITSNITCH_SOURCE_REF=PRE_COMMIT_TO_REF \
-	--remap-env-var GITSNITCH_TARGET_REF=PRE_COMMIT_FROM_REF
-```
-
-2. GitHub Actions with explicit flags (recommended for CI)
-
-```sh
-gitsnitch \
-	--source-ref "$GITHUB_SHA" \
-	--target-ref "origin/${GITHUB_BASE_REF}"
-```
+Without credentials, shallow autoheal fetches fail and gitsnitch returns an internal/runtime error (`251..255`).
 
 
 ## Contributing

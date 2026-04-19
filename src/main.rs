@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::ffi::OsStr;
 use std::io::{self, Read};
@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::{self, Command};
 
 use chrono::Utc;
-use clap::{ArgAction, Parser};
+use clap::{ArgAction, Parser, ValueEnum};
 use minijinja::Environment;
 use serde::Serialize;
 use thiserror::Error;
@@ -22,6 +22,14 @@ const EXIT_INTERNAL_DEPENDENCY: i32 = 253;
 const EXIT_INTERNAL_IO: i32 = 254;
 const EXIT_INTERNAL_UNEXPECTED: i32 = 255;
 const DEFAULT_ENV_PREFIX: &str = "GITSNITCH_";
+const PLAIN_TEXT_REPORT_TEMPLATE: &str = include_str!("presets_data/report_plain_text.jinja2");
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum RenderOutput {
+    Json,
+    JsonCompact,
+    TextPlain,
+}
 
 #[derive(Debug, Parser)]
 #[command(name = "gitsnitch")]
@@ -36,9 +44,21 @@ struct Args {
     #[arg(short, long, action = ArgAction::Count)]
     verbose: u8,
 
-    /// Override config for whether to use max violation severity as process exit code.
-    #[arg(long)]
-    violation_severity_as_exit_code: Option<bool>,
+    /// Select report output renderer: json, json-compact, text-plain.
+    #[arg(long, value_enum, default_value_t = RenderOutput::Json)]
+    render_output: RenderOutput,
+
+    /// Override config and force violation severity to be used as process exit code.
+    #[arg(
+        long,
+        action = ArgAction::Count,
+        conflicts_with = "no_violation_severity_as_exit_code"
+    )]
+    violation_severity_as_exit_code: u8,
+
+    /// Override config and force violations to be exit-code silent.
+    #[arg(long, action = ArgAction::Count)]
+    no_violation_severity_as_exit_code: u8,
 
     /// Add root-level custom metadata entry (key=value), repeatable.
     #[arg(long = "custom-meta")]
@@ -423,6 +443,78 @@ fn read_config_content_from_reader<R: Read>(mut reader: R) -> Result<Option<Stri
     Ok(Some(buffer))
 }
 
+struct LoadedRuntimeConfig {
+    assertions: Vec<config::Assertion>,
+    history: config::History,
+    severity_bands: config::SeverityBands,
+    custom_meta: config::CustomMeta,
+    violation_severity_as_exit_code: Option<bool>,
+}
+
+fn log_lint_scope(lint_scope: &LintScope, verbose: u8) {
+    if verbose == 0 {
+        return;
+    }
+
+    match lint_scope {
+        LintScope::CommitSha(sha) => {
+            eprintln!("lint scope: commit_sha={sha}");
+        }
+        LintScope::RefRange {
+            source_ref,
+            target_ref,
+        } => {
+            eprintln!("lint scope: source_ref={source_ref} target_ref={target_ref}");
+        }
+    }
+}
+
+fn load_runtime_config(
+    args: &Args,
+    remap_env_vars: &BTreeMap<String, String>,
+) -> Result<LoadedRuntimeConfig, AppError> {
+    let config_source = resolve_config_source(args.config.as_ref());
+    let resolved_source = match config_source {
+        ConfigSource::AutoDiscover => {
+            let root = match remapped_or_prefixed_env_non_empty(
+                &args.env_prefix,
+                "CONFIG_ROOT",
+                remap_env_vars,
+            ) {
+                Some(val) => PathBuf::from(val),
+                _ => git_repo_root()?,
+            };
+            autodiscover_config(&root).map_or(ConfigSource::AutoDiscover, ConfigSource::File)
+        }
+        other => other,
+    };
+
+    let config_content = read_config_content(&resolved_source)?;
+    if let Some(content) = config_content {
+        let source_path = match &resolved_source {
+            ConfigSource::File(path) => Some(path.as_path()),
+            _ => None,
+        };
+        let cfg = config::parse(&content, source_path)?;
+
+        return Ok(LoadedRuntimeConfig {
+            assertions: cfg.assertions,
+            history: cfg.history.unwrap_or_default(),
+            severity_bands: cfg.severity_bands,
+            custom_meta: cfg.custom_meta,
+            violation_severity_as_exit_code: Some(cfg.violation_severity_as_exit_code),
+        });
+    }
+
+    Ok(LoadedRuntimeConfig {
+        assertions: Vec::new(),
+        history: config::History::default(),
+        severity_bands: config::SeverityBands::default(),
+        custom_meta: config::CustomMeta::new(),
+        violation_severity_as_exit_code: None,
+    })
+}
+
 fn run(args: &Args) -> Result<(), AppError> {
     validate_custom_meta(&args.custom_meta)?;
     validate_env_resolution_mode(args)?;
@@ -436,61 +528,25 @@ fn run(args: &Args) -> Result<(), AppError> {
     }
 
     let lint_scope = resolve_lint_scope(args, &remap_env_vars)?;
-    if args.verbose > 0 {
-        match &lint_scope {
-            LintScope::CommitSha(sha) => {
-                eprintln!("lint scope: commit_sha={sha}");
-            }
-            LintScope::RefRange {
-                source_ref,
-                target_ref,
-            } => {
-                eprintln!("lint scope: source_ref={source_ref} target_ref={target_ref}");
-            }
-        }
-    }
+    log_lint_scope(&lint_scope, args.verbose);
 
-    let config_source = resolve_config_source(args.config.as_ref());
-    let resolved_source = match config_source {
-        ConfigSource::AutoDiscover => {
-            let root = match remapped_or_prefixed_env_non_empty(
-                &args.env_prefix,
-                "CONFIG_ROOT",
-                &remap_env_vars,
-            ) {
-                Some(val) => PathBuf::from(val),
-                _ => git_repo_root()?,
-            };
-            autodiscover_config(&root).map_or(ConfigSource::AutoDiscover, ConfigSource::File)
-        }
-        other => other,
-    };
-    let config_content = read_config_content(&resolved_source)?;
-    let mut assertions: Vec<config::Assertion> = Vec::new();
-    let mut history = config::History::default();
-    let mut severity_bands = config::SeverityBands::default();
-    let mut config_custom_meta = config::CustomMeta::new();
-    let config_violation_severity_as_exit_code = if let Some(content) = config_content {
-        let source_path = match &resolved_source {
-            ConfigSource::File(p) => Some(p.as_path()),
-            _ => None,
-        };
-        let cfg = config::parse(&content, source_path)?;
-        history = cfg.history.unwrap_or_default();
-        assertions = cfg.assertions;
-        severity_bands = cfg.severity_bands;
-        config_custom_meta = cfg.custom_meta;
-        Some(cfg.violation_severity_as_exit_code)
-    } else {
-        None
-    };
+    let loaded = load_runtime_config(args, &remap_env_vars)?;
+    let mut assertions = loaded.assertions;
+    let history = loaded.history;
+    let severity_bands = loaded.severity_bands;
+    let config_custom_meta = loaded.custom_meta;
+    let config_violation_severity_as_exit_code = loaded.violation_severity_as_exit_code;
 
     let preset_assertions = presets::select_assertions_from_presets(&args.preset)?;
     assertions.extend(preset_assertions);
     config::validate_assertions(&assertions)?;
 
+    let cli_violation_exit_override = resolve_toggle_override(
+        args.violation_severity_as_exit_code > 0,
+        args.no_violation_severity_as_exit_code > 0,
+    );
     let effective_violation_severity_as_exit_code = resolve_violation_severity_exit_switch(
-        args.violation_severity_as_exit_code,
+        cli_violation_exit_override,
         config_violation_severity_as_exit_code,
     );
     let collected =
@@ -502,10 +558,11 @@ fn run(args: &Args) -> Result<(), AppError> {
         .collect::<Vec<_>>();
 
     let api_version_str = "pre";
-    emit_json_report(
+    emit_report(
         &collected.violations,
         &severity_bands,
         effective_violation_severity_as_exit_code,
+        args.render_output,
         &config_custom_meta,
         api_version_str,
     )?;
@@ -533,6 +590,16 @@ fn resolve_violation_severity_exit_switch(
     config_value: Option<bool>,
 ) -> bool {
     exit_codes::resolve_violation_severity_exit_switch(cli_override, config_value)
+}
+
+const fn resolve_toggle_override(enable_flag: bool, disable_flag: bool) -> Option<bool> {
+    if enable_flag {
+        Some(true)
+    } else if disable_flag {
+        Some(false)
+    } else {
+        None
+    }
 }
 
 fn resolve_violation_exit_code(
@@ -597,34 +664,35 @@ struct ViolationContextItem<'a> {
 }
 
 #[derive(Serialize)]
-struct ViolationBandItem<'a> {
-    assertion_alias: &'a str,
-    commit_sha: &'a str,
-    commit_sha_short: &'a str,
-    commit_title: &'a str,
+struct ViolationBandItem {
+    assertion_alias: String,
+    commit_sha: String,
+    commit_sha_short: String,
+    commit_title: String,
 }
 
 #[derive(Serialize)]
-struct ViolationsByBand<'a> {
+struct ViolationsByBand {
     #[serde(rename = "Fatal")]
-    fatal: Vec<ViolationBandItem<'a>>,
+    fatal: Vec<ViolationBandItem>,
     #[serde(rename = "Error")]
-    error: Vec<ViolationBandItem<'a>>,
+    error: Vec<ViolationBandItem>,
     #[serde(rename = "Warning")]
-    warning: Vec<ViolationBandItem<'a>>,
+    warning: Vec<ViolationBandItem>,
     #[serde(rename = "Information")]
-    information: Vec<ViolationBandItem<'a>>,
+    information: Vec<ViolationBandItem>,
 }
 
 #[derive(Serialize)]
-struct ViolationBanner<'a> {
-    assertion_alias: &'a str,
-    output: String,
-    hint: &'a str,
-    severity: u8,
-    severity_band: &'a str,
+struct ViolationBanner {
+    assertion_alias: String,
     text: String,
-    description: &'a str,
+    hint: String,
+    severity: u8,
+    severity_band: String,
+    code: String,
+    description: String,
+    commit_sha_shorts: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -634,11 +702,15 @@ struct JsonReport<'a> {
     gitsnitch_version: &'a str,
     violation_severity_as_exit_code: bool,
     custom_meta: &'a config::CustomMeta,
-    violation_banners: Vec<ViolationBanner<'a>>,
-    violations: ViolationsByBand<'a>,
+    violation_banners: Vec<ViolationBanner>,
+    violations: ViolationsByBand,
 }
 
 const BAND_ORDER: &[&str] = &["Fatal", "Error", "Warning", "Information"];
+
+fn format_violation_code(severity_band: &str, severity: u8) -> String {
+    format!("[{severity_band}:{severity}]")
+}
 
 fn build_violation_context_entries<'a>(
     collected_violations: &'a [violations::Violation],
@@ -706,22 +778,21 @@ fn serialize_violation_payloads(
         .collect::<Result<Vec<_>, AppError>>()
 }
 
-fn build_violation_banners<'a>(
-    by_band: &BTreeMap<&str, Vec<&'a ViolationContextItem<'a>>>,
+fn build_violation_banners(
+    by_band: &BTreeMap<&str, Vec<&ViolationContextItem<'_>>>,
     all_violations_payloads: &[serde_json::Value],
-) -> Result<Vec<ViolationBanner<'a>>, AppError> {
-    let mut seen_assertion_aliases: Vec<&str> = Vec::new();
-    let mut violation_banners: Vec<ViolationBanner<'_>> = Vec::new();
+) -> Result<Vec<ViolationBanner>, AppError> {
+    let mut seen_assertion_aliases: BTreeSet<&str> = BTreeSet::new();
+    let mut violation_banners: Vec<ViolationBanner> = Vec::new();
 
     for band in BAND_ORDER {
         for entry in by_band
             .get(*band)
             .map_or(&[] as &[&ViolationContextItem<'_>], Vec::as_slice)
         {
-            if seen_assertion_aliases.contains(&entry.assertion_alias) {
+            if !seen_assertion_aliases.insert(entry.assertion_alias) {
                 continue;
             }
-            seen_assertion_aliases.push(entry.assertion_alias);
 
             let violation_payload = serde_json::to_value(entry).map_err(|error| {
                 AppError::Message(format!(
@@ -732,14 +803,18 @@ fn build_violation_banners<'a>(
             let rendered_text =
                 render_banner_template(entry.banner, &violation_payload, all_violations_payloads)?;
 
+            let commit_sha_shorts = collect_short_shas_for_alias(by_band, entry.assertion_alias);
+            let code = format_violation_code(band, entry.severity);
+
             violation_banners.push(ViolationBanner {
-                assertion_alias: entry.assertion_alias,
-                output: rendered_text.unwrap_or_default(),
-                hint: entry.hint,
+                assertion_alias: entry.assertion_alias.to_owned(),
+                text: rendered_text.unwrap_or_default(),
+                hint: entry.hint.to_owned(),
                 severity: entry.severity,
-                severity_band: band,
-                text: entry.text.clone(),
-                description: entry.description,
+                severity_band: (*band).to_owned(),
+                code,
+                description: entry.description.to_owned(),
+                commit_sha_shorts,
             });
         }
     }
@@ -747,26 +822,48 @@ fn build_violation_banners<'a>(
     Ok(violation_banners)
 }
 
-fn make_band_items<'a>(
-    by_band: &BTreeMap<&str, Vec<&'a ViolationContextItem<'a>>>,
+fn collect_short_shas_for_alias(
+    by_band: &BTreeMap<&str, Vec<&ViolationContextItem<'_>>>,
+    assertion_alias: &str,
+) -> Vec<String> {
+    let mut unique = BTreeMap::new();
+
+    for band in BAND_ORDER {
+        for entry in by_band
+            .get(*band)
+            .map_or(&[] as &[&ViolationContextItem<'_>], Vec::as_slice)
+        {
+            if entry.assertion_alias == assertion_alias {
+                unique
+                    .entry(entry.commit_sha_short)
+                    .or_insert_with(|| entry.commit_sha_short.to_owned());
+            }
+        }
+    }
+
+    unique.into_values().collect()
+}
+
+fn make_band_items(
+    by_band: &BTreeMap<&str, Vec<&ViolationContextItem<'_>>>,
     band: &str,
-) -> Vec<ViolationBandItem<'a>> {
+) -> Vec<ViolationBandItem> {
     by_band
         .get(band)
         .map_or(&[] as &[&ViolationContextItem<'_>], Vec::as_slice)
         .iter()
         .map(|entry| ViolationBandItem {
-            assertion_alias: entry.assertion_alias,
-            commit_sha: entry.commit_sha,
-            commit_sha_short: entry.commit_sha_short,
-            commit_title: entry.commit_title,
+            assertion_alias: entry.assertion_alias.to_owned(),
+            commit_sha: entry.commit_sha.to_owned(),
+            commit_sha_short: entry.commit_sha_short.to_owned(),
+            commit_title: entry.commit_title.to_owned(),
         })
         .collect()
 }
 
-fn build_violations_by_band<'a>(
-    by_band: &BTreeMap<&str, Vec<&'a ViolationContextItem<'a>>>,
-) -> ViolationsByBand<'a> {
+fn build_violations_by_band(
+    by_band: &BTreeMap<&str, Vec<&ViolationContextItem<'_>>>,
+) -> ViolationsByBand {
     ViolationsByBand {
         fatal: make_band_items(by_band, "Fatal"),
         error: make_band_items(by_band, "Error"),
@@ -775,20 +872,20 @@ fn build_violations_by_band<'a>(
     }
 }
 
-fn emit_json_report(
+fn build_report<'a>(
     collected_violations: &[violations::Violation],
     severity_bands: &config::SeverityBands,
     effective_violation_severity_as_exit_code: bool,
-    custom_meta: &config::CustomMeta,
-    api_version_str: &str,
-) -> Result<(), AppError> {
+    custom_meta: &'a config::CustomMeta,
+    api_version_str: &'a str,
+) -> Result<JsonReport<'a>, AppError> {
     let entries = build_violation_context_entries(collected_violations, severity_bands);
     let by_band = group_entries_by_band(&entries);
     let all_violations_payloads = serialize_violation_payloads(&entries)?;
     let violation_banners = build_violation_banners(&by_band, &all_violations_payloads)?;
     let violations = build_violations_by_band(&by_band);
 
-    let report = JsonReport {
+    Ok(JsonReport {
         schema_version: api_version_str,
         generated_at: Utc::now().to_rfc3339(),
         gitsnitch_version: env!("CARGO_PKG_VERSION"),
@@ -796,14 +893,103 @@ fn emit_json_report(
         custom_meta,
         violation_banners,
         violations,
-    };
+    })
+}
 
-    let serialized = serde_json::to_string(&report).map_err(|error| {
-        AppError::Message(format!("failed to serialize report as JSON: {error}"))
-    })?;
+fn emit_json_report(
+    collected_violations: &[violations::Violation],
+    severity_bands: &config::SeverityBands,
+    effective_violation_severity_as_exit_code: bool,
+    compact_output: bool,
+    custom_meta: &config::CustomMeta,
+    api_version_str: &str,
+) -> Result<(), AppError> {
+    let report = build_report(
+        collected_violations,
+        severity_bands,
+        effective_violation_severity_as_exit_code,
+        custom_meta,
+        api_version_str,
+    )?;
+
+    let serialized = if compact_output {
+        serde_json::to_string(&report)
+    } else {
+        serde_json::to_string_pretty(&report)
+    }
+    .map_err(|error| AppError::Message(format!("failed to serialize report as JSON: {error}")))?;
     println!("{serialized}");
 
     Ok(())
+}
+
+fn emit_plain_text_report(
+    collected_violations: &[violations::Violation],
+    severity_bands: &config::SeverityBands,
+    effective_violation_severity_as_exit_code: bool,
+    custom_meta: &config::CustomMeta,
+    api_version_str: &str,
+) -> Result<(), AppError> {
+    let report = build_report(
+        collected_violations,
+        severity_bands,
+        effective_violation_severity_as_exit_code,
+        custom_meta,
+        api_version_str,
+    )?;
+
+    let report_payload = serde_json::to_value(&report).map_err(|error| {
+        AppError::Message(format!("failed to prepare plain-text report: {error}"))
+    })?;
+
+    let environment = Environment::new();
+    let rendered = environment
+        .render_str(
+            PLAIN_TEXT_REPORT_TEMPLATE,
+            minijinja::context!(report => report_payload),
+        )
+        .map_err(|error| {
+            AppError::Message(format!("failed to render plain-text report: {error}"))
+        })?;
+
+    println!("{rendered}");
+
+    Ok(())
+}
+
+fn emit_report(
+    collected_violations: &[violations::Violation],
+    severity_bands: &config::SeverityBands,
+    effective_violation_severity_as_exit_code: bool,
+    render_output: RenderOutput,
+    custom_meta: &config::CustomMeta,
+    api_version_str: &str,
+) -> Result<(), AppError> {
+    match render_output {
+        RenderOutput::Json => emit_json_report(
+            collected_violations,
+            severity_bands,
+            effective_violation_severity_as_exit_code,
+            false,
+            custom_meta,
+            api_version_str,
+        ),
+        RenderOutput::JsonCompact => emit_json_report(
+            collected_violations,
+            severity_bands,
+            effective_violation_severity_as_exit_code,
+            true,
+            custom_meta,
+            api_version_str,
+        ),
+        RenderOutput::TextPlain => emit_plain_text_report(
+            collected_violations,
+            severity_bands,
+            effective_violation_severity_as_exit_code,
+            custom_meta,
+            api_version_str,
+        ),
+    }
 }
 
 fn main() {

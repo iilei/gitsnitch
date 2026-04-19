@@ -1,8 +1,8 @@
 use super::{
-    AppError, Args, ConfigSource, DEFAULT_ENV_PREFIX, autodiscover_config, check_is_repo_at,
-    git_repo_root_at, parse_remap_env_vars, read_config_content, read_config_content_from_reader,
-    remapped_or_prefixed_env_non_empty_with_lookup, severity_band_label,
-    validate_env_resolution_mode,
+    AppError, Args, ConfigSource, DEFAULT_ENV_PREFIX, RenderOutput, autodiscover_config,
+    check_is_repo_at, git_repo_root_at, parse_remap_env_vars, read_config_content,
+    read_config_content_from_reader, remapped_or_prefixed_env_non_empty_with_lookup,
+    severity_band_label, validate_env_resolution_mode,
 };
 use crate::config;
 use std::collections::BTreeMap;
@@ -16,7 +16,9 @@ fn test_args() -> Args {
     Args {
         config: None,
         verbose: 0,
-        violation_severity_as_exit_code: None,
+        render_output: RenderOutput::Json,
+        violation_severity_as_exit_code: 0,
+        no_violation_severity_as_exit_code: 0,
         custom_meta: vec![],
         preset: vec![],
         commit_sha: None,
@@ -65,6 +67,24 @@ fn resolve_violation_severity_exit_switch_defaults_to_false() {
 }
 
 #[test]
+fn resolve_toggle_override_returns_some_true_when_enable_flag_set() {
+    let value = super::resolve_toggle_override(true, false);
+    assert_eq!(value, Some(true));
+}
+
+#[test]
+fn resolve_toggle_override_returns_some_false_when_disable_flag_set() {
+    let value = super::resolve_toggle_override(false, true);
+    assert_eq!(value, Some(false));
+}
+
+#[test]
+fn resolve_toggle_override_returns_none_when_no_flags_set() {
+    let value = super::resolve_toggle_override(false, false);
+    assert_eq!(value, None);
+}
+
+#[test]
 fn parse_remap_env_vars_accepts_supported_keys() {
     let entries = vec![
         "GITSNITCH_SOURCE_REF=PRE_COMMIT_TO_REF".to_owned(),
@@ -93,6 +113,18 @@ fn parse_remap_env_vars_accepts_supported_keys() {
         remap.get("GITSNITCH_CONFIG_ROOT"),
         Some(&"CI_CONFIG_ROOT".to_owned())
     );
+}
+
+#[test]
+fn remap_supported_keys_set_is_intentionally_limited() {
+    let expected = [
+        "GITSNITCH_SOURCE_REF",
+        "GITSNITCH_TARGET_REF",
+        "GITSNITCH_COMMIT_SHA",
+        "GITSNITCH_CONFIG_ROOT",
+    ];
+
+    assert_eq!(super::REMAP_SUPPORTED_KEYS, expected);
 }
 
 #[test]
@@ -337,6 +369,53 @@ fn render_template_supports_loop_over_violations() {
     };
 
     assert_eq!(rendered, "conventional-title");
+}
+
+#[test]
+fn plain_text_report_template_renders_expected_core_fields() {
+    let report = serde_json::json!({
+        "schema_version": "pre",
+        "generated_at": "2026-01-01T00:00:00Z",
+        "gitsnitch_version": "0.0.0-test",
+        "violation_severity_as_exit_code": true,
+        "custom_meta": {"team": "platform"},
+        "violation_banners": [
+            {
+                "assertion_alias": "forbid-wip",
+                "text": "Avoid WIP titles",
+                "hint": "Use feat/fix prefix",
+                "severity": 10,
+                "severity_band": "Error",
+                "code": "[Error:10]",
+                "description": ""
+            }
+        ],
+        "violations": {
+            "Fatal": [],
+            "Error": [
+                {
+                    "assertion_alias": "forbid-wip",
+                    "commit_sha": "abc123",
+                    "commit_sha_short": "abc123",
+                    "commit_title": "wip"
+                }
+            ],
+            "Warning": [],
+            "Information": []
+        }
+    });
+
+    let rendered = minijinja::Environment::new().render_str(
+        super::PLAIN_TEXT_REPORT_TEMPLATE,
+        minijinja::context!(report => report),
+    );
+    assert!(rendered.is_ok());
+
+    let output = rendered.unwrap_or_default();
+    assert!(output.contains("GitSnitch summary"));
+    assert!(output.contains("Violations:"));
+    assert!(output.contains("Avoid WIP titles"));
+    assert!(output.contains("Commits:"));
 }
 
 #[test]
