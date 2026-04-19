@@ -18,7 +18,6 @@ pub struct Violation {
 
 #[derive(Debug)]
 pub struct LintResult {
-    pub commits_checked: Vec<String>,
     pub violations: Vec<Violation>,
 }
 
@@ -470,12 +469,11 @@ pub fn collect_violations(
 ) -> Result<LintResult, AppError> {
     if assertions.is_empty() {
         return Ok(LintResult {
-            commits_checked: Vec::new(),
             violations: Vec::new(),
         });
     }
 
-    let commits_checked = match scope {
+    let commits_to_check = match scope {
         LintScope::CommitSha(sha) => vec![sha.clone()],
         LintScope::RefRange {
             source_ref,
@@ -483,15 +481,14 @@ pub fn collect_violations(
         } => resolve_ref_range_commit_shas(source_ref, target_ref, history, verbose)?,
     };
 
-    if commits_checked.is_empty() {
+    if commits_to_check.is_empty() {
         return Ok(LintResult {
-            commits_checked,
             violations: Vec::new(),
         });
     }
 
     let mut violations = Vec::new();
-    for sha in &commits_checked {
+    for sha in &commits_to_check {
         let context = load_commit_context(sha)?;
         for assertion in assertions {
             if assertion_violated(assertion, &context)? {
@@ -508,30 +505,8 @@ pub fn collect_violations(
         }
     }
 
-    Ok(LintResult {
-        commits_checked,
-        violations,
-    })
+    Ok(LintResult { violations })
 }
 
 #[cfg(test)]
-mod tests {
-    use super::incremental_deepen_step;
-
-    #[test]
-    fn incremental_deepen_step_grows_exponentially_from_base_shift() {
-        let first = incremental_deepen_step(10, 0);
-        let second = incremental_deepen_step(10, 1);
-        let third = incremental_deepen_step(10, 2);
-
-        assert_eq!(first.ok(), Some(10));
-        assert_eq!(second.ok(), Some(20));
-        assert_eq!(third.ok(), Some(40));
-    }
-
-    #[test]
-    fn incremental_deepen_step_returns_error_on_overflow() {
-        let value = incremental_deepen_step(u32::MAX, 1);
-        assert!(value.is_err());
-    }
-}
+mod tests;
