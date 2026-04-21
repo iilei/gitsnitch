@@ -267,6 +267,12 @@ Human-friendly text:
 gitsnitch --output-format text-plain ...
 ```
 
+Decorative terminal text:
+
+```sh
+gitsnitch --output-format text-decorative ...
+```
+
 </details>
 
 ---

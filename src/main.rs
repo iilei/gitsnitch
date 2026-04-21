@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::ffi::OsStr;
-use std::io::{self, Read};
+use std::io::{self, IsTerminal, Read};
 use std::path::{Path, PathBuf};
 use std::process::{self, Command};
 
@@ -23,12 +23,15 @@ const EXIT_INTERNAL_IO: i32 = 254;
 const EXIT_INTERNAL_UNEXPECTED: i32 = 255;
 const DEFAULT_ENV_PREFIX: &str = "GITSNITCH_";
 const PLAIN_TEXT_REPORT_TEMPLATE: &str = include_str!("presets_data/report_plain_text.jinja2");
+const DECORATIVE_TEXT_REPORT_TEMPLATE: &str =
+    include_str!("presets_data/report_decorative_text.jinja2");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum RenderOutput {
     Json,
     JsonCompact,
     TextPlain,
+    TextDecorative,
 }
 
 #[derive(Debug, Parser)]
@@ -44,7 +47,7 @@ struct Args {
     #[arg(short, long, action = ArgAction::Count)]
     verbose: u8,
 
-    /// Select report output format: json, json-compact, text-plain.
+    /// Select report output format: json, json-compact, text-plain, text-decorative.
     #[arg(long, value_enum, default_value_t = RenderOutput::Json)]
     output_format: RenderOutput,
 
@@ -942,6 +945,58 @@ fn emit_plain_text_report(
     custom_meta: &config::CustomMeta,
     api_version_str: &str,
 ) -> Result<(), AppError> {
+    emit_text_report_with_template(
+        PLAIN_TEXT_REPORT_TEMPLATE,
+        collected_violations,
+        severity_bands,
+        effective_violation_severity_as_exit_code,
+        custom_meta,
+        api_version_str,
+    )
+}
+
+#[derive(Debug, Serialize)]
+struct TerminalRenderContext {
+    supports_color: bool,
+}
+
+fn detect_terminal_supports_color() -> bool {
+    if env::var_os("NO_COLOR").is_some() {
+        return false;
+    }
+
+    if env::var("TERM")
+        .map(|value| value.eq_ignore_ascii_case("dumb"))
+        .unwrap_or(false)
+    {
+        return false;
+    }
+
+    if env::var("CLICOLOR_FORCE")
+        .map(|value| value != "0")
+        .unwrap_or(false)
+    {
+        return true;
+    }
+
+    if env::var("CLICOLOR")
+        .map(|value| value == "0")
+        .unwrap_or(false)
+    {
+        return false;
+    }
+
+    io::stdout().is_terminal()
+}
+
+fn emit_text_report_with_template(
+    template_source: &str,
+    collected_violations: &[violations::Violation],
+    severity_bands: &config::SeverityBands,
+    effective_violation_severity_as_exit_code: bool,
+    custom_meta: &config::CustomMeta,
+    api_version_str: &str,
+) -> Result<(), AppError> {
     let report = build_report(
         collected_violations,
         severity_bands,
@@ -954,11 +1009,14 @@ fn emit_plain_text_report(
         AppError::Message(format!("failed to prepare plain-text report: {error}"))
     })?;
 
+    let terminal = TerminalRenderContext {
+        supports_color: detect_terminal_supports_color(),
+    };
     let environment = Environment::new();
     let rendered = environment
         .render_str(
-            PLAIN_TEXT_REPORT_TEMPLATE,
-            minijinja::context!(report => report_payload),
+            template_source,
+            minijinja::context!(report => report_payload, terminal => terminal),
         )
         .map_err(|error| {
             AppError::Message(format!("failed to render plain-text report: {error}"))
@@ -967,6 +1025,23 @@ fn emit_plain_text_report(
     println!("{rendered}");
 
     Ok(())
+}
+
+fn emit_decorative_text_report(
+    collected_violations: &[violations::Violation],
+    severity_bands: &config::SeverityBands,
+    effective_violation_severity_as_exit_code: bool,
+    custom_meta: &config::CustomMeta,
+    api_version_str: &str,
+) -> Result<(), AppError> {
+    emit_text_report_with_template(
+        DECORATIVE_TEXT_REPORT_TEMPLATE,
+        collected_violations,
+        severity_bands,
+        effective_violation_severity_as_exit_code,
+        custom_meta,
+        api_version_str,
+    )
 }
 
 fn emit_report(
@@ -995,6 +1070,13 @@ fn emit_report(
             api_version_str,
         ),
         RenderOutput::TextPlain => emit_plain_text_report(
+            collected_violations,
+            severity_bands,
+            effective_violation_severity_as_exit_code,
+            custom_meta,
+            api_version_str,
+        ),
+        RenderOutput::TextDecorative => emit_decorative_text_report(
             collected_violations,
             severity_bands,
             effective_violation_severity_as_exit_code,

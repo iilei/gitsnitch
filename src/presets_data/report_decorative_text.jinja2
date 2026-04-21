@@ -1,0 +1,54 @@
+{%- set line_width = 80 -%}
+{%- set ORANGE = '\033[38;5;208m' -%}
+{%- set RESET = '\033[0m' -%}
+{%- set _ORANGE_ = '▓' -%}
+{%- set _FULL_ = '█' -%}
+{%- set art %}
+                                                                  ▄▀▀▀▄
+                                                                ██   ██
+                                                           ████      ██
+                                                   █████████         ██
+                                              █████                  ██
+                                           ███                      ██
+                                        ███                        ██
+     █░█            ▄████████████▄     ██                         ██
+     █░░░█         █   █          █████                          ██
+       █░░░█     █▓▓                                            ██
+         █░░░█▄█▓▓▓▓▓ ▄▄███████▄                               █
+              █▓▓▓▓▓██           ██                              █
+                ███░██▄           ██                             █
+                   ██░░██         ██                              █
+                     ██░█         ██                               █
+                                   █                               ██
+                                    ██                                █
+                                       █▓       ▄▄▄▄██████████████████▓▓
+                                      ▓▓▓█▄▄▄▄█                         ▓▓
+                                   ▓▓▓▓▓▓                                ▓▓▓▓
+                              ▓▓▓▓▓▓▓▓▓▓                              ▓▓▓▓▓▓▓▓
+                             ▓▓▓▓▓▓▓▓▓▓                              ▓▓▓▓▓▓▓▓▓
+                              ▓▓▓▓▓▓▓▓                                 ▓▓▓▓▓▓
+                                  ▓▓▓                                  ▓▓▓▓▓▓
+{%- endset -%}
+{{ "*" * line_width }}
+GitSnitch report
+{{ "*" * line_width }}
+{%- for violation in report.violation_banners -%}
+{%- set assertion_alias = violation.assertion_alias %}
+{{ violation.code -}}{{- ' ' -}}
+{% if violation.text and violation.text | trim | length > 0 -%}{{ violation.text | trim }}{%- endif %}
+{% if violation.hint and violation.hint | trim | length > 0 -%}{{ violation.hint | trim }}{%- endif %}
+Commits
+  {%- for v in report.violations[violation.severity_band] if v.assertion_alias == assertion_alias %}
+  - {{ v.commit_sha_short }}
+  {%- endfor %}
+{%- if not loop.last %}{{ '\n' }}{{ " -" * (line_width / 2) }}{% endif -%}
+{%- endfor %}
+{{ "-" * line_width }}
+{% if  report.violation_banners | length > 0 %}
+{%- if terminal is defined and terminal.supports_color -%}
+{%- set colored_art = art | replace(_ORANGE_, ORANGE ~ _FULL_ ~ RESET) -%}
+{{ colored_art | replace(RESET ~ ORANGE, '') }}
+{%- else -%}
+{{ art }}
+{% endif -%}
+{%- endif -%}

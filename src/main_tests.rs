@@ -425,6 +425,62 @@ fn plain_text_report_template_renders_expected_core_fields() {
 }
 
 #[test]
+fn decorative_text_report_template_renders_with_terminal_context() {
+    let report = serde_json::json!({
+        "schema_version": "pre",
+        "generated_at": "2026-01-01T00:00:00Z",
+        "gitsnitch_version": "0.0.0-test",
+        "violation_severity_as_exit_code": false,
+        "custom_meta": {},
+        "violation_banners": [
+            {
+                "assertion_alias": "forbid-wip",
+                "text": "Avoid WIP titles",
+                "hint": "Use feat/fix prefix",
+                "severity": 10,
+                "severity_band": "Error",
+                "code": "[Error:10]",
+                "description": ""
+            }
+        ],
+        "violations": {
+            "Fatal": [],
+            "Error": [
+                {
+                    "assertion_alias": "forbid-wip",
+                    "commit_sha": "abc123",
+                    "commit_sha_short": "abc123",
+                    "commit_title": "wip"
+                }
+            ],
+            "Warning": [],
+            "Information": []
+        }
+    });
+
+    let rendered = minijinja::Environment::new().render_str(
+        super::DECORATIVE_TEXT_REPORT_TEMPLATE,
+        minijinja::context!(
+            report => report,
+            terminal => serde_json::json!({"supports_color": false})
+        ),
+    );
+    assert!(
+        rendered.is_ok(),
+        "decorative text template failed to render: {}",
+        rendered
+            .as_ref()
+            .err()
+            .map(ToString::to_string)
+            .unwrap_or_default()
+    );
+
+    let output = rendered.unwrap_or_default();
+    assert!(output.contains("GitSnitch"));
+    assert!(output.contains("[Error:10]"));
+}
+
+#[test]
 fn read_config_content_returns_none_for_auto_discover() {
     let result = read_config_content(&ConfigSource::AutoDiscover);
     assert!(result.is_ok());
