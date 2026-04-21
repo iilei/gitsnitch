@@ -86,6 +86,92 @@ fn resolve_toggle_override_returns_none_when_no_flags_set() {
 }
 
 #[test]
+fn resolve_lint_scope_uses_commit_sha_when_provided() {
+    let mut args = test_args();
+    args.commit_sha = Some("abc123".to_owned());
+    let remap = BTreeMap::new();
+
+    let scope = super::resolve_lint_scope(&args, &remap);
+    assert!(scope.is_ok());
+    let scope = scope.ok();
+    assert!(matches!(scope, Some(super::LintScope::CommitSha(_))));
+    if let Some(super::LintScope::CommitSha(sha)) = scope {
+        assert_eq!(sha, "abc123");
+    }
+}
+
+#[test]
+fn resolve_lint_scope_uses_ref_range_when_both_refs_are_provided() {
+    let mut args = test_args();
+    args.source_ref = Some("feature".to_owned());
+    args.target_ref = Some("main".to_owned());
+    let remap = BTreeMap::new();
+
+    let scope = super::resolve_lint_scope(&args, &remap);
+    assert!(scope.is_ok());
+
+    let scope = scope.ok();
+    assert!(matches!(scope, Some(super::LintScope::RefRange { .. })));
+    if let Some(super::LintScope::RefRange {
+        source_ref,
+        target_ref,
+    }) = scope
+    {
+        assert_eq!(source_ref, "feature");
+        assert_eq!(target_ref, "main");
+    }
+}
+
+#[test]
+fn resolve_lint_scope_rejects_mixing_commit_and_ref_range_modes() {
+    let mut args = test_args();
+    args.commit_sha = Some("abc123".to_owned());
+    args.source_ref = Some("feature".to_owned());
+    args.target_ref = Some("main".to_owned());
+    let remap = BTreeMap::new();
+
+    let result = super::resolve_lint_scope(&args, &remap);
+    assert!(result.is_err());
+
+    let message = match result {
+        Err(AppError::Message(message)) => message,
+        Ok(_) | Err(_) => String::new(),
+    };
+    assert!(message.contains("mutually exclusive"));
+}
+
+#[test]
+fn resolve_lint_scope_rejects_partial_ref_range() {
+    let mut args = test_args();
+    args.source_ref = Some("feature".to_owned());
+    let remap = BTreeMap::new();
+
+    let result = super::resolve_lint_scope(&args, &remap);
+    assert!(result.is_err());
+
+    let message = match result {
+        Err(AppError::Message(message)) => message,
+        Ok(_) | Err(_) => String::new(),
+    };
+    assert!(message.contains("requires both --source-ref and --target-ref"));
+}
+
+#[test]
+fn resolve_lint_scope_rejects_missing_scope() {
+    let args = test_args();
+    let remap = BTreeMap::new();
+
+    let result = super::resolve_lint_scope(&args, &remap);
+    assert!(result.is_err());
+
+    let message = match result {
+        Err(AppError::Message(message)) => message,
+        Ok(_) | Err(_) => String::new(),
+    };
+    assert!(message.contains("no lint scope provided"));
+}
+
+#[test]
 fn terminal_supports_color_respects_no_color_precedence() {
     let value = super::terminal_supports_color_from_inputs(
         true,

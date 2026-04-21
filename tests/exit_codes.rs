@@ -75,6 +75,34 @@ fn run_gitsnitch(cwd: &Path, args: &[&str]) -> Result<i32, String> {
         .ok_or_else(|| "gitsnitch terminated without an exit code".to_owned())
 }
 
+fn run_gitsnitch_with_env_and_output(
+    cwd: &Path,
+    args: &[&str],
+    env_pairs: &[(&str, &str)],
+) -> Result<(i32, String, String), String> {
+    let bin = std::env::var("CARGO_BIN_EXE_gitsnitch")
+        .map_err(|error| format!("missing CARGO_BIN_EXE_gitsnitch env var: {error}"))?;
+
+    let mut command = Command::new(bin);
+    command.current_dir(cwd).args(args);
+    for (key, value) in env_pairs {
+        command.env(key, value);
+    }
+
+    let output = command
+        .output()
+        .map_err(|error| format!("failed to run gitsnitch: {error}"))?;
+
+    let code = output
+        .status
+        .code()
+        .ok_or_else(|| "gitsnitch terminated without an exit code".to_owned())?;
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    Ok((code, stdout, stderr))
+}
+
 fn init_repo_with_single_commit() -> Result<(TempDir, String), String> {
     let temp = TempDir::new("gitsnitch-it")?;
 
@@ -221,6 +249,19 @@ fn clone_shallow_repo(source: &Path) -> Result<TempDir, String> {
     }
 
     Ok(clone_temp)
+}
+
+fn break_origin_remote(repo: &Path) -> Result<(), String> {
+    run_git(
+        repo,
+        &[
+            "remote",
+            "set-url",
+            "origin",
+            "/tmp/gitsnitch-missing-remote",
+        ],
+    )?;
+    Ok(())
 }
 
 #[test]
@@ -399,6 +440,164 @@ fn shallow_ref_range_succeeds_with_incremental_autoheal() {
     };
 
     assert_eq!(code, 0);
+}
+
+#[test]
+fn shallow_ref_range_incremental_autoheal_reports_fetch_failure_with_internal_code() {
+    let setup = init_repo_with_linear_history(3);
+    assert!(setup.is_ok());
+    let Ok(source_repo) = setup else {
+        return;
+    };
+
+    let shallow_clone = clone_shallow_repo(&source_repo.path);
+    assert!(shallow_clone.is_ok());
+    let Ok(clone_repo) = shallow_clone else {
+        return;
+    };
+
+    let break_remote = break_origin_remote(&clone_repo.path);
+    assert!(break_remote.is_ok());
+
+    let cfg = write_history_config(&clone_repo.path, "incremental", 1, 2);
+    assert!(cfg.is_ok());
+    let Ok(cfg_path) = cfg else {
+        return;
+    };
+
+    let cfg_path_str = cfg_path.to_string_lossy().to_string();
+    let exit = run_gitsnitch(
+        &clone_repo.path,
+        &[
+            "--config",
+            &cfg_path_str,
+            "--source-ref",
+            "origin/base",
+            "--target-ref",
+            "HEAD",
+        ],
+    );
+    assert!(exit.is_ok());
+    let Ok(code) = exit else {
+        return;
+    };
+
+    assert_eq!(code, 251);
+}
+
+#[test]
+fn shallow_ref_range_full_autoheal_reports_fetch_failure_with_internal_code() {
+    let setup = init_repo_with_linear_history(3);
+    assert!(setup.is_ok());
+    let Ok(source_repo) = setup else {
+        return;
+    };
+
+    let shallow_clone = clone_shallow_repo(&source_repo.path);
+    assert!(shallow_clone.is_ok());
+    let Ok(clone_repo) = shallow_clone else {
+        return;
+    };
+
+    let break_remote = break_origin_remote(&clone_repo.path);
+    assert!(break_remote.is_ok());
+
+    let cfg = write_history_config(&clone_repo.path, "full", 1, 1);
+    assert!(cfg.is_ok());
+    let Ok(cfg_path) = cfg else {
+        return;
+    };
+
+    let cfg_path_str = cfg_path.to_string_lossy().to_string();
+    let exit = run_gitsnitch(
+        &clone_repo.path,
+        &[
+            "--config",
+            &cfg_path_str,
+            "--source-ref",
+            "origin/base",
+            "--target-ref",
+            "HEAD",
+        ],
+    );
+    assert!(exit.is_ok());
+    let Ok(code) = exit else {
+        return;
+    };
+
+    assert_eq!(code, 251);
+}
+
+#[test]
+fn decorative_output_omits_ansi_when_no_color_is_set() {
+    let setup = init_repo_with_single_commit();
+    assert!(setup.is_ok());
+    let Ok((repo, sha)) = setup else {
+        return;
+    };
+
+    let cfg = write_config(&repo.path, false, &[10]);
+    assert!(cfg.is_ok());
+    let Ok(cfg_path) = cfg else {
+        return;
+    };
+
+    let cfg_path_str = cfg_path.to_string_lossy().to_string();
+    let run = run_gitsnitch_with_env_and_output(
+        &repo.path,
+        &[
+            "--config",
+            &cfg_path_str,
+            "--commit-sha",
+            &sha,
+            "--output-format",
+            "text-decorative",
+        ],
+        &[("NO_COLOR", "1")],
+    );
+    assert!(run.is_ok());
+    let Ok((code, stdout, _stderr)) = run else {
+        return;
+    };
+
+    assert_eq!(code, 0);
+    assert!(!stdout.contains("\u{1b}[38;5;208m"));
+}
+
+#[test]
+fn decorative_output_emits_ansi_when_clicolor_force_is_enabled() {
+    let setup = init_repo_with_single_commit();
+    assert!(setup.is_ok());
+    let Ok((repo, sha)) = setup else {
+        return;
+    };
+
+    let cfg = write_config(&repo.path, false, &[10]);
+    assert!(cfg.is_ok());
+    let Ok(cfg_path) = cfg else {
+        return;
+    };
+
+    let cfg_path_str = cfg_path.to_string_lossy().to_string();
+    let run = run_gitsnitch_with_env_and_output(
+        &repo.path,
+        &[
+            "--config",
+            &cfg_path_str,
+            "--commit-sha",
+            &sha,
+            "--output-format",
+            "text-decorative",
+        ],
+        &[("CLICOLOR_FORCE", "1")],
+    );
+    assert!(run.is_ok());
+    let Ok((code, stdout, _stderr)) = run else {
+        return;
+    };
+
+    assert_eq!(code, 0);
+    assert!(stdout.contains("\u{1b}[38;5;208m"));
 }
 
 #[test]
