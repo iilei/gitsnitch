@@ -237,7 +237,7 @@ Violation exit behavior is controlled by `violation_severity_as_exit_code`:
 **CLI override:**
 
 ```sh
-gitsnitch --violation-severity-as-exit-code ...        # enable
+gitsnitch --violation-severity-as-exit-code ...       # enable
 gitsnitch --no-violation-severity-as-exit-code ...    # disable (overrides config)
 ```
 
@@ -301,7 +301,7 @@ Without credentials, shallow autoheal fetches fail and gitsnitch returns an inte
 
 ## Contributing
 
-```bash
+```sh
 make install-tools
 ```
 
@@ -309,13 +309,13 @@ make install-tools
 
 One-off run prek (1)
 
-```
+```sh
 prek --stage manual --all-files
 ```
 
 Install pre-commit, pre-push, and post-commit hooks
 
-```
+```sh
 prek install
 prek install --hook-type pre-push
 prek install --hook-type post-commit

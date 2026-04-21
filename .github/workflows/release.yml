@@ -1,0 +1,55 @@
+name: Release
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target:
+          [
+            x86_64-unknown-linux-gnu,
+            x86_64-apple-darwin,
+            x86_64-pc-windows-msvc,
+          ]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        uses: houseabsolute/actions-rust-cross@v0
+        with:
+          target: ${{ matrix.target }}
+          args: "--release"
+
+      - name: Import GPG key
+        id: import_gpg
+        uses: crazy-max/ghaction-import-gpg@v6
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.GPG_PASSPHRASE }}
+
+      - name: Sign binaries
+        run: |
+          target_dir="target/${{ matrix.target }}/release"
+          binary_name="gitsnitch"
+
+          case "${{ matrix.target }}" in
+            *windows*) binary_name="${binary_name}.exe" ;;
+          esac
+
+          gpg --batch --sign --detach-sign \
+            --local-user "${{ steps.import_gpg.outputs.keyid }}" \
+            "${target_dir}/${binary_name}"
+
+      - name: Release
+        uses: houseabsolute/actions-rust-release@v0
+        with:
+          executable-name: gitsnitch
+          target: ${{ matrix.target }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
