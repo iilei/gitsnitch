@@ -5,6 +5,7 @@ use super::{
     severity_band_label, validate_env_resolution_mode,
 };
 use crate::config;
+use clap::Parser;
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::Cursor;
@@ -82,6 +83,93 @@ fn resolve_toggle_override_returns_some_false_when_disable_flag_set() {
 fn resolve_toggle_override_returns_none_when_no_flags_set() {
     let value = super::resolve_toggle_override(false, false);
     assert_eq!(value, None);
+}
+
+#[test]
+fn terminal_supports_color_respects_no_color_precedence() {
+    let value = super::terminal_supports_color_from_inputs(
+        true,
+        Some("xterm-256color"),
+        Some("1"),
+        Some("1"),
+        true,
+    );
+    assert!(!value);
+}
+
+#[test]
+fn terminal_supports_color_disables_for_term_dumb() {
+    let value = super::terminal_supports_color_from_inputs(false, Some("dumb"), None, None, true);
+    assert!(!value);
+}
+
+#[test]
+fn terminal_supports_color_enables_for_clicolor_force() {
+    let value = super::terminal_supports_color_from_inputs(
+        false,
+        Some("xterm"),
+        Some("1"),
+        Some("0"),
+        false,
+    );
+    assert!(value);
+}
+
+#[test]
+fn terminal_supports_color_disables_for_clicolor_zero() {
+    let value =
+        super::terminal_supports_color_from_inputs(false, Some("xterm"), None, Some("0"), true);
+    assert!(!value);
+}
+
+#[test]
+fn terminal_supports_color_falls_back_to_tty_state() {
+    let tty_true = super::terminal_supports_color_from_inputs(false, None, None, None, true);
+    let tty_false = super::terminal_supports_color_from_inputs(false, None, None, None, false);
+    assert!(tty_true);
+    assert!(!tty_false);
+}
+
+#[test]
+fn args_parser_accepts_text_decorative_output_format() {
+    let parsed = Args::try_parse_from([
+        "gitsnitch",
+        "--output-format",
+        "text-decorative",
+        "--commit-sha",
+        "deadbeef",
+    ]);
+    assert!(parsed.is_ok());
+
+    let args = parsed.unwrap_or_else(|_| test_args());
+    assert!(matches!(args.output_format, RenderOutput::TextDecorative));
+}
+
+#[test]
+fn emit_report_supports_plain_and_decorative_text_variants() {
+    let violations = Vec::<crate::violations::Violation>::new();
+    let severity_bands = config::SeverityBands::default();
+    let custom_meta = config::CustomMeta::new();
+
+    let plain = super::emit_report(
+        &violations,
+        &severity_bands,
+        false,
+        RenderOutput::TextPlain,
+        &custom_meta,
+        "pre",
+    );
+    assert!(plain.is_ok());
+
+    let decorative = super::emit_report(
+        &violations,
+        &severity_bands,
+        false,
+        RenderOutput::TextDecorative,
+        &custom_meta,
+        "pre",
+    );
+    assert!(decorative.is_ok());
 }
 
 #[test]

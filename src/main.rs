@@ -961,32 +961,44 @@ struct TerminalRenderContext {
 }
 
 fn detect_terminal_supports_color() -> bool {
-    if env::var_os("NO_COLOR").is_some() {
+    let no_color_present = env::var_os("NO_COLOR").is_some();
+    let term = env::var("TERM").ok();
+    let clicolor_force = env::var("CLICOLOR_FORCE").ok();
+    let clicolor = env::var("CLICOLOR").ok();
+
+    terminal_supports_color_from_inputs(
+        no_color_present,
+        term.as_deref(),
+        clicolor_force.as_deref(),
+        clicolor.as_deref(),
+        io::stdout().is_terminal(),
+    )
+}
+
+fn terminal_supports_color_from_inputs(
+    no_color_present: bool,
+    term: Option<&str>,
+    clicolor_force: Option<&str>,
+    clicolor: Option<&str>,
+    stdout_is_terminal: bool,
+) -> bool {
+    if no_color_present {
         return false;
     }
 
-    if env::var("TERM")
-        .map(|value| value.eq_ignore_ascii_case("dumb"))
-        .unwrap_or(false)
-    {
+    if term.is_some_and(|value| value.eq_ignore_ascii_case("dumb")) {
         return false;
     }
 
-    if env::var("CLICOLOR_FORCE")
-        .map(|value| value != "0")
-        .unwrap_or(false)
-    {
+    if clicolor_force.is_some_and(|value| value != "0") {
         return true;
     }
 
-    if env::var("CLICOLOR")
-        .map(|value| value == "0")
-        .unwrap_or(false)
-    {
+    if clicolor.is_some_and(|value| value == "0") {
         return false;
     }
 
-    io::stdout().is_terminal()
+    stdout_is_terminal
 }
 
 fn emit_text_report_with_template(
