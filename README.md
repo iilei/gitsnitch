@@ -1,91 +1,34 @@
+[![codecov](https://codecov.io/gh/iilei/gitsnitch/branch/master/graph/badge.svg?token=TZ71OWC0AZ)](https://codecov.io/gh/iilei/gitsnitch)
+
 # gitsnitch :dagger::goose:
 
 ![goose with a knife](gitsnitch_banner.png)
 
-**gitsnitch** lints your Git commit history against a declarative ruleset — locally as a pre-commit/pre-push hook, or in any CI/CD pipeline.
-
-You define *assertions*: each assertion has a condition that each commit must satisfy (or a condition under which to skip it entirely). Conditions can match against the commit message title, body, or raw text; inspect changed file paths or diff lines; or compare numeric metrics such as diff line count against a threshold. Violations are assigned a numeric severity, mapped to named bands (`Information`, `Warning`, `Error`, `Fatal`), and surfaced with configurable banners and remediation hints.
+**Lints your Git commit history against a declarative ruleset** — locally as a pre-commit/pre-push hook, or in any CI/CD pipeline.
 
 Think of it as a linter, but for commit hygiene — enforced consistently across every author and every environment.
 
-### Features
+---
 
-* **Message rules** — require conventional-commit titles, ticket references in the body, or any regex pattern against title/body/raw message
-* **Diff rules** — restrict changed file paths, detect forbidden line patterns, or gate on diff size (line count thresholds)
-* **Context-aware skipping** — skip assertions conditionally, e.g. on maintenance branches
-* **Severity bands** — map numeric severity (0–250) to `Information / Warning / Error / Fatal` with configurable thresholds
-* **Severity-as-exit optional mode** — when enabled, exit with the maximum violation severity; internal/runtime errors are reserved to 251–255
-* **Shallow clone healing** — automatically deepens shallow CI checkouts before linting
-* **Remediation hints** — show actionable guidance on violation via Jinja2 banner templates
-* **Named assertion presets** — select embedded preset assertion bundles with repeatable `--preset` flags
+## Quick Start
 
-## Named Presets
+### For developers (local linting)
 
-Presets provide assertion bundles (including assertion-level `banner` and `hint` templates) and are selected at runtime via CLI only.
-
-Rules:
-
-* Presets do not carry root config (no `history`, no `severity_bands`, no global switches).
-* Presets are embedded at build-time from snake_case preset files.
-* Runtime selection uses dash-case names via repeatable `--preset` flags.
-* Selected preset assertions are appended to config assertions.
-* Assertion aliases must be globally unique across config + all selected presets; duplicates fail as a config error.
-
-Available presets (CLI names):
-
-* `conventional-commits`
-* `title-body-separator`
-* `forbid-wip`
-* `security-related-edits-mention`
-
-Examples:
-
-```sh
-gitsnitch --preset conventional-commits --commit-sha <sha>
-```
-
-```sh
-gitsnitch \
-	--preset conventional-commits \
-	--preset forbid-wip \
-	--source-ref <source-ref> \
-	--target-ref <target-ref>
-```
-
-### Self-authoring presets
-
-Use the embedded preset files as inspiration:
-
-* [src/presets_data/conventional_commits.toml](src/presets_data/conventional_commits.toml)
-* [src/presets_data/title_body_separator.toml](src/presets_data/title_body_separator.toml)
-* [src/presets_data/forbid_wip.toml](src/presets_data/forbid_wip.toml)
-* [src/presets_data/security_related_edits_mention.toml](src/presets_data/security_related_edits_mention.toml)
-
-Authoring guidance:
-
-* Preset content is assertion-only (no root-level history, severity_bands, or global switches).
-* For project-local customization, copy/adapt assertion blocks into your shared config file.
-
-## Workflows by Role
-
-### Developers (local)
-
-1. Keep a shared repo config (`.gitsnitch.toml` or equivalent).
-2. Lint a single commit while iterating:
+Lint a single commit while iterating:
 
 ```sh
 gitsnitch --commit-sha <sha>
 ```
 
-3. Reuse named presets when needed:
+With a preset bundle (e.g., enforce conventional commits):
 
 ```sh
 gitsnitch --preset conventional-commits --commit-sha <sha>
 ```
 
-### CI/CD orchestrators
+### For CI/CD pipelines
 
-Use flags for policy and behavior; use env only to wire runtime context.
+Lint a range of commits in a pull request:
 
 ```sh
 gitsnitch \
@@ -95,85 +38,93 @@ gitsnitch \
 	--violation-severity-as-exit-code
 ```
 
+Or lint via commit SHA with JSON output:
+
 ```sh
 gitsnitch \
-	--source-ref "$CI_COMMIT_SHA" \
-	--target-ref "origin/main" \
+	--commit-sha "$CI_COMMIT_SHA" \
 	--config .gitsnitch.toml \
 	--output-format json-compact
 ```
 
-### Policy designers
+---
 
-1. Define assertions and severity bands in config.
-2. Optionally bundle reusable assertion sets as presets.
-3. Keep policy stable in config and avoid environment-specific policy overrides.
+## Built-in Presets
 
-## Runtime Inputs and Precedence
+Apply assertion bundles with `--preset` flags (repeatable):
 
-gitsnitch needs an explicit lint scope. Choose exactly one mode:
+* `conventional-commits` — enforce [Conventional Commits](https://www.conventionalcommits.org/)
+* `title-body-separator` — require blank line between title and body
+* `forbid-wip` — block WIP/DO NOT MERGE patterns
+* `security-related-edits-mention` — require explicit mention of security in certain commit types
 
-1. `--commit-sha <sha>`
-2. `--source-ref <source-ref> --target-ref <target-ref>`
-
-Rules:
-
-* `--commit-sha` is mutually exclusive with `--source-ref` and `--target-ref`.
-* `--source-ref` and `--target-ref` must be provided together.
-* If none are provided, gitsnitch fails with an explicit error.
-
-Global precedence model:
-
-1. CLI flags
-2. env vars (supported runtime context keys only)
-3. config file
-4. built-in defaults
-
-### Environment variable scope
-
-Supported canonical runtime keys:
-
-* `GITSNITCH_CONFIG_ROOT`
-* `GITSNITCH_COMMIT_SHA`
-* `GITSNITCH_SOURCE_REF`
-* `GITSNITCH_TARGET_REF`
-
-Scope note:
-
-* Env vars are for runtime context wiring only.
-* Policy/config settings are expected to come from CLI flags or config file.
-
-You can change the prefix with `--env-prefix`:
+**Examples:**
 
 ```sh
-gitsnitch --env-prefix CI_
-# reads CI_CONFIG_ROOT, CI_COMMIT_SHA, CI_SOURCE_REF, CI_TARGET_REF
+gitsnitch --preset conventional-commits --preset forbid-wip --commit-sha <sha>
 ```
 
-You can also remap canonical keys to arbitrary env var names:
+---
 
-```sh
-gitsnitch \
-	--remap-env-var GITSNITCH_SOURCE_REF=PRE_COMMIT_TO_REF \
-	--remap-env-var GITSNITCH_TARGET_REF=PRE_COMMIT_FROM_REF
-```
+## Core Features
 
-Remap rules:
+* **Message rules** — regex patterns on commit title, body, or full message
+* **Diff rules** — restrict file paths, detect forbidden line patterns, enforce line-count thresholds
+* **Context-aware skipping** — skip rules conditionally (e.g., on maintenance branches)
+* **Severity bands** — map severity 0–250 to `Information`, `Warning`, `Error`, `Fatal`
+* **Exit code mapping** — optionally map violation severity to exit code for CI automation
+* **Shallow clone healing** — auto-deepen shallow CI checkouts
+* **Remediation hints** — customizable Jinja2 banner templates per rule
+* **Config autodiscovery** — find `.gitsnitch.toml`, `.gitsnitchrc`, `.gitsnitch.json`, etc., automatically
 
-* Format must be `KEY=ENV_VAR`.
-* `ENV_VAR` must be non-empty.
-* A key can only be remapped once.
-* For a remapped key, gitsnitch reads only the remapped env var (no fallback).
-* `--remap-env-var` is mutually exclusive with non-default `--env-prefix`.
+---
 
-## Configuration
+<details>
+<summary><strong>Creating Custom Presets</strong></summary>
+
+Presets provide assertion bundles (with optional assertion-level `banner` and `hint` templates) selected at runtime via CLI only.
+
+**Rules:**
+
+* Presets contain assertions only — no root-level `history`, `severity_bands`, or global switches
+* Embedded at build-time from snake_case files
+* Runtime names use dash-case (e.g., `conventional-commits`)
+* Selected presets append to config assertions
+* Assertion aliases must be globally unique; duplicates fail as a config error
+
+**Authoring custom presets:**
+
+Use the embedded preset files as templates:
+
+* [src/presets_data/conventional_commits.toml](src/presets_data/conventional_commits.toml)
+* [src/presets_data/title_body_separator.toml](src/presets_data/title_body_separator.toml)
+* [src/presets_data/forbid_wip.toml](src/presets_data/forbid_wip.toml)
+* [src/presets_data/security_related_edits_mention.toml](src/presets_data/security_related_edits_mention.toml)
+
+Copy and adapt assertion blocks into your shared config file for project-local customization.
+
+</details>
+
+---
+
+<details>
+<summary><strong>Configuration & Input Modes</strong></summary>
+
+### Choosing a lint scope
+
+gitsnitch requires exactly one mode:
+
+1. `--commit-sha <sha>` — lint a single commit
+2. `--source-ref <ref> --target-ref <ref>` — lint a range between two refs
+
+These are mutually exclusive. If neither is provided, gitsnitch fails with an explicit error.
 
 ### Config file autodiscovery
 
-When no `--config` flag is given, gitsnitch searches the git repository root for config files in this precedence order:
+If no `--config` flag is given, gitsnitch searches the git repository root for config files in this order:
 
 1. `.gitsnitch.toml`
-2. `.gitsnitchrc` (no extension, parsed as TOML)
+2. `.gitsnitchrc` (TOML format, no extension)
 3. `.gitsnitch.json`
 4. `.gitsnitch.json5`
 5. `.gitsnitch.yaml`
@@ -181,76 +132,122 @@ When no `--config` flag is given, gitsnitch searches the git repository root for
 
 The first match wins. If none is found, gitsnitch runs with no config (no assertions).
 
-### Overriding the discovery root
+**Explicit config path:**
 
-The discovery root defaults to the git repository root (`git rev-parse --show-toplevel`). Override it with an environment variable:
+```sh
+gitsnitch --config path/to/config.toml
+```
+
+**Read from stdin:**
+
+```sh
+cat my-config.toml | gitsnitch --config -
+```
+
+### Config discovery root
+
+By default, discovery searches the git repository root. Override it with:
 
 ```sh
 GITSNITCH_CONFIG_ROOT=/path/to/config/dir gitsnitch
 ```
 
-The env var prefix defaults to `GITSNITCH_` and can be changed with `--env-prefix`:
+Or via flag:
 
 ```sh
 gitsnitch --env-prefix CI_
 # now reads CI_CONFIG_ROOT instead of GITSNITCH_CONFIG_ROOT
 ```
 
-You can also use a project-specific namespace when preferred:
+Custom namespace:
 
 ```sh
 gitsnitch --env-prefix GITSNITCH_CUSTOM_NAMESPACE_
-# reads GITSNITCH_CUSTOM_NAMESPACE_CONFIG_ROOT, GITSNITCH_CUSTOM_NAMESPACE_SOURCE_REF, ...
+# reads GITSNITCH_CUSTOM_NAMESPACE_CONFIG_ROOT, etc.
 ```
 
-### Explicit config path
+</details>
 
-Pass an explicit file path to skip autodiscovery entirely:
+---
+
+<details>
+<summary><strong>Runtime Inputs, Precedence & Environment Variables</strong></summary>
+
+### precedence (CLI → env vars → config → defaults)
+
+1. CLI flags (highest priority)
+2. Environment variables (supported runtime keys only)
+3. Config file values
+4. Built-in defaults
+
+### Supported environment variables
+
+Canonical keys (default prefix `GITSNITCH_`):
+
+* `GITSNITCH_CONFIG_ROOT` — where to search for config file
+* `GITSNITCH_COMMIT_SHA` — commit to lint
+* `GITSNITCH_SOURCE_REF` — source branch (for range linting)
+* `GITSNITCH_TARGET_REF` — target branch (for range linting)
+
+**Change the prefix:**
 
 ```sh
-gitsnitch --config path/to/config.toml
+gitsnitch --env-prefix CI_
+# reads CI_CONFIG_ROOT, CI_COMMIT_SHA, CI_SOURCE_REF, CI_TARGET_REF
 ```
 
-Pass `-` to read the config from stdin:
+**Remap to arbitrary env var names:**
 
 ```sh
-cat my-config.toml | gitsnitch --config -
+gitsnitch \
+	--remap-env-var GITSNITCH_SOURCE_REF=PRE_COMMIT_TO_REF \
+	--remap-env-var GITSNITCH_TARGET_REF=PRE_COMMIT_FROM_REF
 ```
+
+**Remap rules:**
+
+* Format: `KEY=ENV_VAR`
+* `ENV_VAR` must be non-empty
+* A key can only be remapped once
+* For a remapped key, only the remapped env var is read (no fallback)
+* `--remap-env-var` is mutually exclusive with non-default `--env-prefix`
+
+</details>
+
+---
+
+<details>
+<summary><strong>Exit Codes & Output Formats</strong></summary>
 
 ### Exit code behavior
 
-`gitsnitch` reserves process exit codes `251..255` for internal/runtime failures.
+gitsnitch reserves exit codes `251..255` for internal/runtime failures.
 
 Violation exit behavior is controlled by `violation_severity_as_exit_code`:
 
-* `false` (default): violations are reported but process exit remains `0`.
-* `true`: process exit code is the maximum violating assertion severity (`0..250`).
+* `false` (default): violations are reported, exit is `0`
+* `true`: exit code is the maximum violating assertion severity (0–250)
 
-Examples:
+**Examples:**
 
-* violations with severities `{100, 200}` and mode `true` => exit `200`
-* violations with severities `{0, 0}` and mode `true` => exit `0`
-* any violations and mode `false` => exit `0`
+* violations `{100, 200}` with mode `true` → exit `200`
+* violations `{0, 0}` with mode `true` → exit `0`
+* any violations with mode `false` → exit `0`
 
-CLI override:
-
-```sh
-gitsnitch --violation-severity-as-exit-code ...
-```
-
-Disable from CLI (even if config enables it):
+**CLI override:**
 
 ```sh
-gitsnitch --no-violation-severity-as-exit-code ...
+gitsnitch --violation-severity-as-exit-code ...        # enable
+gitsnitch --no-violation-severity-as-exit-code ...    # disable (overrides config)
 ```
 
-Precedence:
+**Precedence:**
 
-1. CLI `--violation-severity-as-exit-code` or `--no-violation-severity-as-exit-code`
+1. CLI flag (if provided)
 2. config `violation_severity_as_exit_code`
 3. default `false`
 
-### Output format
+### Output formats
 
 By default, `gitsnitch` renders pretty JSON:
 
@@ -258,33 +255,38 @@ By default, `gitsnitch` renders pretty JSON:
 gitsnitch --output-format json ...
 ```
 
-Use compact single-line JSON when needed:
+Compact single-line JSON:
 
 ```sh
 gitsnitch --output-format json-compact ...
 ```
 
-Use the internal human-friendly text renderer:
+Human-friendly text:
 
 ```sh
 gitsnitch --output-format text-plain ...
 ```
 
-## CI Authentication for Shallow Autoheal
+</details>
 
-When linting a ref range in a shallow checkout, gitsnitch may run `git fetch` to deepen history.
+---
 
-Requirement:
+<details>
+<summary><strong>CI Authentication & Shallow Clone Autoheal</strong></summary>
 
-* CI credentials must allow `git fetch` from `origin`.
+When linting a ref range in a shallow checkout, `gitsnitch` may run `git fetch` to deepen history.
 
-Common setups:
+**Requirement:**
 
-* CI-native checkout token persisted for later fetches.
-* Git credential helper configured in the runner.
-* Optional `.netrc` in environments where that is preferred.
+CI credentials must allow `git fetch` from `origin`.
 
-Example `.netrc`:
+**Common setups:**
+
+* CI-native checkout token persisted for later fetches
+* Git credential helper configured in the runner
+* Optional `.netrc` file
+
+**Example `.netrc`:**
 
 ```text
 machine github.com
@@ -293,6 +295,8 @@ machine github.com
 ```
 
 Without credentials, shallow autoheal fetches fail and gitsnitch returns an internal/runtime error (`251..255`).
+
+</details>
 
 
 ## Contributing
