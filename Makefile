@@ -46,6 +46,7 @@ build:
 	mkdir -p $(BIN_DIR)
 	cp target/release/$(BIN_NAME)$(EXE_EXT) $(BIN_PATH)
 	@echo "Built: $(BIN_PATH)"
+	@echo "./bin/gitsnitch --preset forbid-wip --preset conventional-commits --source-ref HEAD --target-ref master"
 
 test:
 	$(CARGO) test --all-features

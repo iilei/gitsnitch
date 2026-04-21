@@ -1,7 +1,7 @@
 [[assertions]]
-alias = "preset_title_body_seperator"
+alias = "preset_title_body_separator"
 description = "Require a title line followed by exactly one blank separator line before the body"
-banner = "Commit message must use title, blank line, then body.\n\nCommits:\n{% for v in violations %}{% if v.assertion_alias == violation.assertion_alias %}- {{ v.commit_sha_short }}\n{% endif %}{% endfor %}"
+banner = "Commit message must use title, blank line, then body."
 hint = "Use: git commit -m 'Title' -m 'Body text'"
 severity = 40
 

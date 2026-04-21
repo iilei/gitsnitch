@@ -43,7 +43,7 @@ fn select_assertions_from_presets_rejects_unknown_preset() {
 fn select_assertions_from_presets_resolves_all_embedded_presets() {
     let result = select_assertions_from_presets(&[
         "conventional-commits".to_owned(),
-        "title-body-seperator".to_owned(),
+        "title-body-separator".to_owned(),
         "forbid-wip".to_owned(),
         "security-related-edits-mention".to_owned(),
     ]);

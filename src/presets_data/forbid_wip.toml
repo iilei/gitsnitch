@@ -1,7 +1,7 @@
 [[assertions]]
 alias = "preset_forbid_wip"
 description = "Disallow work-in-progress commit titles"
-banner = "Commit title must not start with WIP.\n\nCommits:\n{% for v in violations %}{% if v.assertion_alias == violation.assertion_alias %}- {{ v.commit_sha_short }}\n{% endif %}{% endfor %}"
+banner = "Commit title must not start with WIP."
 hint = "Replace the WIP prefix with the actual change intent before committing."
 severity = 60
 

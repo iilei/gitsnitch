@@ -10,8 +10,8 @@ const PRESET_FILES: &[(&str, &str)] = &[
         include_str!("presets_data/conventional_commits.toml"),
     ),
     (
-        "title_body_seperator",
-        include_str!("presets_data/title_body_seperator.toml"),
+        "title_body_separator",
+        include_str!("presets_data/title_body_separator.toml"),
     ),
     ("forbid_wip", include_str!("presets_data/forbid_wip.toml")),
     (

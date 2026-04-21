@@ -10,7 +10,7 @@ skinparam backgroundColor transparent
 hide empty members
 top to bottom direction
 
-title GitSnitch Configuration Format (next version)
+title GitSnitch Configuration Format (pre-release)
 
 frame "Root Node" {
   +class Config << (C,#F6C344) >> {
@@ -138,8 +138,8 @@ Scope by mode:
 - line: <b>patterns</b> matches changed lines
 end note
 
-class MetaCondition << (C,#F6C344) >> {
-  + {field} type: MetaConditionType
+class BranchMatchCondition << (C,#F6C344) >> {
+  + {field} type: BranchMatchConditionType
   + {field} patterns: list[string]
 }
 
@@ -156,7 +156,7 @@ ConditionContainer "1" *--* "1" Condition
 Condition <|-l- MessageCondition
 Condition <|-r- DiffMatchCondition
 Condition <|-d- ThresholdCondition
-Condition <|-- MetaCondition
+Condition <|-- BranchMatchCondition
 
 legend right
 <b>Legend</b>
@@ -194,7 +194,7 @@ legend right
 
   legend right
   |= Term |= Description |= Example |
-  | patterns | list of regular expressions --> regexp.MustCompile | <font:monospaced> ["(?i:fix\|feat).*"]</font> |
+  | patterns | list of regular expressions (compiled via the `regex` crate) | <font:monospaced> ["(?i:fix\|feat).*"]</font> |
   | CustomMeta | custom metadata | <font:monospaced> {"usermeta__git_source": "git.xyz.example.com/team/adr-1337"}</font> |
   | Jinja2 template (MiniJinja) | string evaluated as a Jinja2 template with violation context | <font:monospaced> Violations:</font>\n<font:monospaced> {%- for v in violations %}</font>\n<font:monospaced> {{ v.text }}</font>\n<font:monospaced> {%- endfor %}</font> |
   endlegend

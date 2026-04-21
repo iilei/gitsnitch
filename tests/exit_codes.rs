@@ -153,7 +153,7 @@ fn write_history_config(
     autoheal_shallow_tries: u32,
 ) -> Result<PathBuf, String> {
     let content = format!(
-        "api_version = \"pre\"\n\n[history]\nautoheal_shallow = \"{autoheal_shallow}\"\nautoheal_shallow_shift = {autoheal_shallow_shift}\nautoheal_shallow_tries = {autoheal_shallow_tries}\n"
+        "api_version = \"pre\"\n\n[history]\nautoheal_shallow = \"{autoheal_shallow}\"\nautoheal_shallow_shift = {autoheal_shallow_shift}\nautoheal_shallow_tries = {autoheal_shallow_tries}\n\n[[assertions]]\nalias = \"history-test\"\nseverity = 10\n[assertions.must_satisfy]\n[assertions.must_satisfy.condition]\ntype = \"msg_match_any\"\nmode = \"raw\"\npatterns = [\"^THIS_PATTERN_NEVER_MATCHES$\"]\n"
     );
 
     let config_path = repo.join("history-config.toml");
@@ -205,6 +205,10 @@ fn clone_shallow_repo(source: &Path) -> Result<TempDir, String> {
     run_git(
         &clone_temp.path,
         &["fetch", "--depth", "1", "origin", "master"],
+    )?;
+    run_git(
+        &clone_temp.path,
+        &["fetch", "--depth", "1", "origin", "feature"],
     )?;
     run_git(
         &clone_temp.path,

@@ -321,7 +321,7 @@ fn validate_assertion_severities(assertions: &[Assertion]) -> Result<(), ConfigE
     for assertion in assertions {
         if assertion.severity > MAX_SEVERITY {
             return Err(ConfigError::Semantic(format!(
-                "assertion '{}' has severity {} which must be <= 250",
+                "assertion '{}' has severity {} which must be <= {MAX_SEVERITY}",
                 assertion.alias, assertion.severity
             )));
         }
@@ -380,7 +380,7 @@ fn validate_severity_bands(bands: &SeverityBands) -> Result<(), ConfigError> {
     ] {
         if value > MAX_SEVERITY {
             return Err(ConfigError::Semantic(format!(
-                "severity_bands: {name} ({value}) must be <= 250"
+                "severity_bands: {name} ({value}) must be <= {MAX_SEVERITY}"
             )));
         }
     }

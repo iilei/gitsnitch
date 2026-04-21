@@ -1,7 +1,7 @@
 [[assertions]]
 alias = "preset_conventional_title"
 description = "Require a Conventional Commits style title"
-banner = "Use Conventional Commits title format: <type>(scope?): subject\n\nCommits:\n{% for v in violations %}{% if v.assertion_alias == violation.assertion_alias %}- {{ v.commit_sha_short }}\n{% endif %}{% endfor %}"
+banner = "Use Conventional Commits title format: <type>(scope?): subject"
 hint = "Example: feat(parser): add preset selection"
 severity = 80
 

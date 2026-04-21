@@ -34,7 +34,7 @@ Rules:
 Available presets (CLI names):
 
 * `conventional-commits`
-* `title-body-seperator`
+* `title-body-separator`
 * `forbid-wip`
 * `security-related-edits-mention`
 
@@ -57,7 +57,7 @@ gitsnitch \
 Use the embedded preset files as inspiration:
 
 * [src/presets_data/conventional_commits.toml](src/presets_data/conventional_commits.toml)
-* [src/presets_data/title_body_seperator.toml](src/presets_data/title_body_seperator.toml)
+* [src/presets_data/title_body_separator.toml](src/presets_data/title_body_separator.toml)
 * [src/presets_data/forbid_wip.toml](src/presets_data/forbid_wip.toml)
 * [src/presets_data/security_related_edits_mention.toml](src/presets_data/security_related_edits_mention.toml)
 
@@ -89,7 +89,7 @@ Use flags for policy and behavior; use env only to wire runtime context.
 
 ```sh
 gitsnitch \
-	--source-ref "$GITHUB_SHA" \
+	--source-ref "$GITHUB_HEAD_REF" \
 	--target-ref "origin/${GITHUB_BASE_REF}" \
 	--config .gitsnitch.toml \
 	--violation-severity-as-exit-code
@@ -100,7 +100,7 @@ gitsnitch \
 	--source-ref "$CI_COMMIT_SHA" \
 	--target-ref "origin/main" \
 	--config .gitsnitch.toml \
-	--render-output json-compact
+	--output-format json-compact
 ```
 
 ### Policy designers
@@ -255,19 +255,19 @@ Precedence:
 By default, `gitsnitch` renders pretty JSON:
 
 ```sh
-gitsnitch --render-output json ...
+gitsnitch --output-format json ...
 ```
 
 Use compact single-line JSON when needed:
 
 ```sh
-gitsnitch --render-output json-compact ...
+gitsnitch --output-format json-compact ...
 ```
 
 Use the internal human-friendly text renderer:
 
 ```sh
-gitsnitch --render-output text-plain ...
+gitsnitch --output-format text-plain ...
 ```
 
 ## CI Authentication for Shallow Autoheal

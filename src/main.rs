@@ -44,9 +44,9 @@ struct Args {
     #[arg(short, long, action = ArgAction::Count)]
     verbose: u8,
 
-    /// Select report output renderer: json, json-compact, text-plain.
+    /// Select report output format: json, json-compact, text-plain.
     #[arg(long, value_enum, default_value_t = RenderOutput::Json)]
-    render_output: RenderOutput,
+    output_format: RenderOutput,
 
     /// Override config and force violation severity to be used as process exit code.
     #[arg(
@@ -541,6 +541,14 @@ fn run(args: &Args) -> Result<(), AppError> {
     assertions.extend(preset_assertions);
     config::validate_assertions(&assertions)?;
 
+    if assertions.is_empty() {
+        return Err(AppError::Exit(ExitError {
+            code: EXIT_INTERNAL_CONFIG,
+            message: "no assertions available: provide a config file or select at least one preset"
+                .to_owned(),
+        }));
+    }
+
     let cli_violation_exit_override = resolve_toggle_override(
         args.violation_severity_as_exit_code > 0,
         args.no_violation_severity_as_exit_code > 0,
@@ -562,7 +570,7 @@ fn run(args: &Args) -> Result<(), AppError> {
         &collected.violations,
         &severity_bands,
         effective_violation_severity_as_exit_code,
-        args.render_output,
+        args.output_format,
         &config_custom_meta,
         api_version_str,
     )?;
@@ -650,17 +658,17 @@ fn render_banner_template(
 }
 
 #[derive(Serialize)]
-struct ViolationContextItem<'a> {
-    assertion_alias: &'a str,
-    commit_sha: &'a str,
-    commit_sha_short: &'a str,
-    commit_title: &'a str,
-    description: &'a str,
+struct ViolationContextItem {
+    assertion_alias: String,
+    commit_sha: String,
+    commit_sha_short: String,
+    commit_title: String,
+    description: String,
     severity: u8,
-    severity_band: &'a str,
+    severity_band: &'static str,
     text: String,
-    banner: &'a str,
-    hint: &'a str,
+    banner: String,
+    hint: String,
 }
 
 #[derive(Serialize)]
@@ -712,35 +720,39 @@ fn format_violation_code(severity_band: &str, severity: u8) -> String {
     format!("[{severity_band}:{severity}]")
 }
 
-fn build_violation_context_entries<'a>(
-    collected_violations: &'a [violations::Violation],
+fn build_violation_context_entries(
+    collected_violations: &[violations::Violation],
     severity_bands: &config::SeverityBands,
-) -> Vec<ViolationContextItem<'a>> {
+) -> Vec<ViolationContextItem> {
     collected_violations
         .iter()
         .map(|v| {
             let severity_band = severity_band_label(v.severity, severity_bands);
-            let sha_short = v.commit_sha.get(..7).unwrap_or(v.commit_sha.as_str());
+            let sha_short = v
+                .commit_sha
+                .get(..7)
+                .unwrap_or(v.commit_sha.as_str())
+                .to_owned();
             ViolationContextItem {
-                assertion_alias: v.assertion_alias.as_str(),
-                commit_sha: v.commit_sha.as_str(),
+                assertion_alias: v.assertion_alias.clone(),
+                commit_sha: v.commit_sha.clone(),
                 commit_sha_short: sha_short,
-                commit_title: v.commit_title.as_str(),
-                description: v.assertion_description.as_str(),
+                commit_title: v.commit_title.clone(),
+                description: v.assertion_description.clone(),
                 severity: v.severity,
                 severity_band,
                 text: format!("[{severity_band}:{}] {}", v.severity, v.assertion_alias),
-                banner: v.banner.as_str(),
-                hint: v.hint.as_str(),
+                banner: v.banner.clone(),
+                hint: v.hint.clone(),
             }
         })
         .collect()
 }
 
 fn group_entries_by_band<'a>(
-    entries: &'a [ViolationContextItem<'a>],
-) -> BTreeMap<&'a str, Vec<&'a ViolationContextItem<'a>>> {
-    let mut by_band: BTreeMap<&str, Vec<&ViolationContextItem<'_>>> = BTreeMap::new();
+    entries: &'a [ViolationContextItem],
+) -> BTreeMap<&'static str, Vec<&'a ViolationContextItem>> {
+    let mut by_band: BTreeMap<&'static str, Vec<&'a ViolationContextItem>> = BTreeMap::new();
     for band in BAND_ORDER {
         by_band.insert(*band, Vec::new());
     }
@@ -755,8 +767,8 @@ fn group_entries_by_band<'a>(
             right
                 .severity
                 .cmp(&left.severity)
-                .then_with(|| left.assertion_alias.cmp(right.assertion_alias))
-                .then_with(|| left.commit_sha.cmp(right.commit_sha))
+                .then_with(|| left.assertion_alias.cmp(&right.assertion_alias))
+                .then_with(|| left.commit_sha.cmp(&right.commit_sha))
         });
     }
 
@@ -764,7 +776,7 @@ fn group_entries_by_band<'a>(
 }
 
 fn serialize_violation_payloads(
-    entries: &[ViolationContextItem<'_>],
+    entries: &[ViolationContextItem],
 ) -> Result<Vec<serde_json::Value>, AppError> {
     entries
         .iter()
@@ -779,7 +791,7 @@ fn serialize_violation_payloads(
 }
 
 fn build_violation_banners(
-    by_band: &BTreeMap<&str, Vec<&ViolationContextItem<'_>>>,
+    by_band: &BTreeMap<&str, Vec<&ViolationContextItem>>,
     all_violations_payloads: &[serde_json::Value],
 ) -> Result<Vec<ViolationBanner>, AppError> {
     let mut seen_assertion_aliases: BTreeSet<&str> = BTreeSet::new();
@@ -788,9 +800,9 @@ fn build_violation_banners(
     for band in BAND_ORDER {
         for entry in by_band
             .get(*band)
-            .map_or(&[] as &[&ViolationContextItem<'_>], Vec::as_slice)
+            .map_or(&[] as &[&ViolationContextItem], Vec::as_slice)
         {
-            if !seen_assertion_aliases.insert(entry.assertion_alias) {
+            if !seen_assertion_aliases.insert(&entry.assertion_alias) {
                 continue;
             }
 
@@ -801,19 +813,19 @@ fn build_violation_banners(
             })?;
 
             let rendered_text =
-                render_banner_template(entry.banner, &violation_payload, all_violations_payloads)?;
+                render_banner_template(&entry.banner, &violation_payload, all_violations_payloads)?;
 
-            let commit_sha_shorts = collect_short_shas_for_alias(by_band, entry.assertion_alias);
+            let commit_sha_shorts = collect_short_shas_for_alias(by_band, &entry.assertion_alias);
             let code = format_violation_code(band, entry.severity);
 
             violation_banners.push(ViolationBanner {
-                assertion_alias: entry.assertion_alias.to_owned(),
+                assertion_alias: entry.assertion_alias.clone(),
                 text: rendered_text.unwrap_or_default(),
-                hint: entry.hint.to_owned(),
+                hint: entry.hint.clone(),
                 severity: entry.severity,
                 severity_band: (*band).to_owned(),
                 code,
-                description: entry.description.to_owned(),
+                description: entry.description.clone(),
                 commit_sha_shorts,
             });
         }
@@ -823,20 +835,20 @@ fn build_violation_banners(
 }
 
 fn collect_short_shas_for_alias(
-    by_band: &BTreeMap<&str, Vec<&ViolationContextItem<'_>>>,
+    by_band: &BTreeMap<&str, Vec<&ViolationContextItem>>,
     assertion_alias: &str,
 ) -> Vec<String> {
-    let mut unique = BTreeMap::new();
+    let mut unique: BTreeMap<&str, String> = BTreeMap::new();
 
     for band in BAND_ORDER {
         for entry in by_band
             .get(*band)
-            .map_or(&[] as &[&ViolationContextItem<'_>], Vec::as_slice)
+            .map_or(&[] as &[&ViolationContextItem], Vec::as_slice)
         {
             if entry.assertion_alias == assertion_alias {
                 unique
-                    .entry(entry.commit_sha_short)
-                    .or_insert_with(|| entry.commit_sha_short.to_owned());
+                    .entry(&entry.commit_sha_short)
+                    .or_insert_with(|| entry.commit_sha_short.clone());
             }
         }
     }
@@ -845,24 +857,24 @@ fn collect_short_shas_for_alias(
 }
 
 fn make_band_items(
-    by_band: &BTreeMap<&str, Vec<&ViolationContextItem<'_>>>,
+    by_band: &BTreeMap<&str, Vec<&ViolationContextItem>>,
     band: &str,
 ) -> Vec<ViolationBandItem> {
     by_band
         .get(band)
-        .map_or(&[] as &[&ViolationContextItem<'_>], Vec::as_slice)
+        .map_or(&[] as &[&ViolationContextItem], Vec::as_slice)
         .iter()
         .map(|entry| ViolationBandItem {
-            assertion_alias: entry.assertion_alias.to_owned(),
-            commit_sha: entry.commit_sha.to_owned(),
-            commit_sha_short: entry.commit_sha_short.to_owned(),
-            commit_title: entry.commit_title.to_owned(),
+            assertion_alias: entry.assertion_alias.clone(),
+            commit_sha: entry.commit_sha.clone(),
+            commit_sha_short: entry.commit_sha_short.clone(),
+            commit_title: entry.commit_title.clone(),
         })
         .collect()
 }
 
 fn build_violations_by_band(
-    by_band: &BTreeMap<&str, Vec<&ViolationContextItem<'_>>>,
+    by_band: &BTreeMap<&str, Vec<&ViolationContextItem>>,
 ) -> ViolationsByBand {
     ViolationsByBand {
         fatal: make_band_items(by_band, "Fatal"),
@@ -961,11 +973,11 @@ fn emit_report(
     collected_violations: &[violations::Violation],
     severity_bands: &config::SeverityBands,
     effective_violation_severity_as_exit_code: bool,
-    render_output: RenderOutput,
+    output_format: RenderOutput,
     custom_meta: &config::CustomMeta,
     api_version_str: &str,
 ) -> Result<(), AppError> {
-    match render_output {
+    match output_format {
         RenderOutput::Json => emit_json_report(
             collected_violations,
             severity_bands,

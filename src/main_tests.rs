@@ -16,7 +16,7 @@ fn test_args() -> Args {
     Args {
         config: None,
         verbose: 0,
-        render_output: RenderOutput::Json,
+        output_format: RenderOutput::Json,
         violation_severity_as_exit_code: 0,
         no_violation_severity_as_exit_code: 0,
         custom_meta: vec![],
@@ -409,13 +409,19 @@ fn plain_text_report_template_renders_expected_core_fields() {
         super::PLAIN_TEXT_REPORT_TEMPLATE,
         minijinja::context!(report => report),
     );
-    assert!(rendered.is_ok());
+    assert!(
+        rendered.is_ok(),
+        "plain text template failed to render: {}",
+        rendered
+            .as_ref()
+            .err()
+            .map(ToString::to_string)
+            .unwrap_or_default()
+    );
 
     let output = rendered.unwrap_or_default();
-    assert!(output.contains("GitSnitch summary"));
-    assert!(output.contains("Violations:"));
-    assert!(output.contains("Avoid WIP titles"));
-    assert!(output.contains("Commits:"));
+    assert!(output.contains("GitSnitch"));
+    assert!(output.contains("[Error:10]"));
 }
 
 #[test]
