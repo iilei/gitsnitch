@@ -403,6 +403,74 @@ fn shallow_ref_range_runs_with_autoheal_never() {
 }
 
 #[test]
+fn non_shallow_ref_range_full_autoheal_returns_internal_error_without_fetching() {
+    let setup = init_repo_with_linear_history(3);
+    assert!(setup.is_ok());
+    let Ok(repo) = setup else {
+        return;
+    };
+
+    let cfg = write_history_config(&repo.path, "full", 1, 1);
+    assert!(cfg.is_ok());
+    let Ok(cfg_path) = cfg else {
+        return;
+    };
+
+    let cfg_path_str = cfg_path.to_string_lossy().to_string();
+    let exit = run_gitsnitch(
+        &repo.path,
+        &[
+            "--config",
+            &cfg_path_str,
+            "--source-ref",
+            "origin/does-not-exist",
+            "--target-ref",
+            "HEAD",
+        ],
+    );
+    assert!(exit.is_ok());
+    let Ok(code) = exit else {
+        return;
+    };
+
+    assert_eq!(code, 251);
+}
+
+#[test]
+fn non_shallow_ref_range_incremental_autoheal_returns_internal_error_without_fetching() {
+    let setup = init_repo_with_linear_history(3);
+    assert!(setup.is_ok());
+    let Ok(repo) = setup else {
+        return;
+    };
+
+    let cfg = write_history_config(&repo.path, "incremental", 1, 2);
+    assert!(cfg.is_ok());
+    let Ok(cfg_path) = cfg else {
+        return;
+    };
+
+    let cfg_path_str = cfg_path.to_string_lossy().to_string();
+    let exit = run_gitsnitch(
+        &repo.path,
+        &[
+            "--config",
+            &cfg_path_str,
+            "--source-ref",
+            "origin/does-not-exist",
+            "--target-ref",
+            "HEAD",
+        ],
+    );
+    assert!(exit.is_ok());
+    let Ok(code) = exit else {
+        return;
+    };
+
+    assert_eq!(code, 251);
+}
+
+#[test]
 fn shallow_ref_range_succeeds_with_incremental_autoheal() {
     let setup = init_repo_with_linear_history(3);
     assert!(setup.is_ok());
@@ -526,6 +594,148 @@ fn shallow_ref_range_full_autoheal_reports_fetch_failure_with_internal_code() {
     };
 
     assert_eq!(code, 251);
+}
+
+#[test]
+fn shallow_ref_range_incremental_autoheal_reports_post_fetch_range_failure() {
+    let setup = init_repo_with_linear_history(3);
+    assert!(setup.is_ok());
+    let Ok(source_repo) = setup else {
+        return;
+    };
+
+    let shallow_clone = clone_shallow_repo(&source_repo.path);
+    assert!(shallow_clone.is_ok());
+    let Ok(clone_repo) = shallow_clone else {
+        return;
+    };
+
+    let cfg = write_history_config(&clone_repo.path, "incremental", 1, 2);
+    assert!(cfg.is_ok());
+    let Ok(cfg_path) = cfg else {
+        return;
+    };
+
+    let cfg_path_str = cfg_path.to_string_lossy().to_string();
+    let exit = run_gitsnitch(
+        &clone_repo.path,
+        &[
+            "--config",
+            &cfg_path_str,
+            "--source-ref",
+            "origin/does-not-exist",
+            "--target-ref",
+            "HEAD",
+        ],
+    );
+    assert!(exit.is_ok());
+    let Ok(code) = exit else {
+        return;
+    };
+
+    assert_eq!(code, 251);
+}
+
+#[test]
+fn shallow_ref_range_incremental_autoheal_with_zero_tries_reports_internal_error() {
+    let setup = init_repo_with_linear_history(3);
+    assert!(setup.is_ok());
+    let Ok(source_repo) = setup else {
+        return;
+    };
+
+    let shallow_clone = clone_shallow_repo(&source_repo.path);
+    assert!(shallow_clone.is_ok());
+    let Ok(clone_repo) = shallow_clone else {
+        return;
+    };
+
+    let cfg = write_history_config(&clone_repo.path, "incremental", 1, 0);
+    assert!(cfg.is_ok());
+    let Ok(cfg_path) = cfg else {
+        return;
+    };
+
+    let cfg_path_str = cfg_path.to_string_lossy().to_string();
+    let exit = run_gitsnitch(
+        &clone_repo.path,
+        &[
+            "--config",
+            &cfg_path_str,
+            "--source-ref",
+            "origin/does-not-exist",
+            "--target-ref",
+            "HEAD",
+        ],
+    );
+    assert!(exit.is_ok());
+    let Ok(code) = exit else {
+        return;
+    };
+
+    assert_eq!(code, 251);
+}
+
+#[test]
+fn shallow_ref_range_full_autoheal_reports_post_fetch_range_failure() {
+    let setup = init_repo_with_linear_history(3);
+    assert!(setup.is_ok());
+    let Ok(source_repo) = setup else {
+        return;
+    };
+
+    let shallow_clone = clone_shallow_repo(&source_repo.path);
+    assert!(shallow_clone.is_ok());
+    let Ok(clone_repo) = shallow_clone else {
+        return;
+    };
+
+    let cfg = write_history_config(&clone_repo.path, "full", 1, 1);
+    assert!(cfg.is_ok());
+    let Ok(cfg_path) = cfg else {
+        return;
+    };
+
+    let cfg_path_str = cfg_path.to_string_lossy().to_string();
+    let exit = run_gitsnitch(
+        &clone_repo.path,
+        &[
+            "--config",
+            &cfg_path_str,
+            "--source-ref",
+            "origin/does-not-exist",
+            "--target-ref",
+            "HEAD",
+        ],
+    );
+    assert!(exit.is_ok());
+    let Ok(code) = exit else {
+        return;
+    };
+
+    assert_eq!(code, 251);
+}
+
+#[test]
+fn missing_git_on_path_returns_dependency_exit_code() {
+    let setup = init_repo_with_single_commit();
+    assert!(setup.is_ok());
+    let Ok((repo, _sha)) = setup else {
+        return;
+    };
+
+    let run = run_gitsnitch_with_env_and_output(
+        &repo.path,
+        &["--commit-sha", "deadbeef"],
+        &[("PATH", "")],
+    );
+    assert!(run.is_ok());
+    let Ok((code, _stdout, stderr)) = run else {
+        return;
+    };
+
+    assert_eq!(code, 253);
+    assert!(stderr.contains("git is not installed or not on PATH"));
 }
 
 #[test]
@@ -730,6 +940,23 @@ fn duplicate_alias_between_selected_presets_exits_with_internal_config_code() {
             "conventional-commits",
         ],
     );
+    assert!(exit.is_ok());
+    let Ok(code) = exit else {
+        return;
+    };
+
+    assert_eq!(code, 252);
+}
+
+#[test]
+fn no_config_and_no_presets_exits_with_internal_config_code() {
+    let setup = init_repo_with_single_commit();
+    assert!(setup.is_ok());
+    let Ok((repo, sha)) = setup else {
+        return;
+    };
+
+    let exit = run_gitsnitch(&repo.path, &["--commit-sha", &sha]);
     assert!(exit.is_ok());
     let Ok(code) = exit else {
         return;

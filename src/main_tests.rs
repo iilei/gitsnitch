@@ -32,6 +32,52 @@ fn test_args() -> Args {
 }
 
 #[test]
+fn validate_custom_meta_accepts_valid_entries() {
+    let entries = vec!["team=platform".to_owned(), "env=ci".to_owned()];
+    let result = super::validate_custom_meta(&entries);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn validate_custom_meta_rejects_entry_without_separator() {
+    let entries = vec!["team-platform".to_owned()];
+    let result = super::validate_custom_meta(&entries);
+    assert!(result.is_err());
+
+    let message = match result {
+        Err(AppError::Message(message)) => message,
+        Ok(()) | Err(_) => String::new(),
+    };
+    assert!(message.contains("expected key=value"));
+}
+
+#[test]
+fn validate_custom_meta_rejects_empty_key() {
+    let entries = vec!["   =value".to_owned()];
+    let result = super::validate_custom_meta(&entries);
+    assert!(result.is_err());
+
+    let message = match result {
+        Err(AppError::Message(message)) => message,
+        Ok(()) | Err(_) => String::new(),
+    };
+    assert!(message.contains("key cannot be empty"));
+}
+
+#[test]
+fn validate_custom_meta_rejects_empty_value() {
+    let entries = vec!["key=   ".to_owned()];
+    let result = super::validate_custom_meta(&entries);
+    assert!(result.is_err());
+
+    let message = match result {
+        Err(AppError::Message(message)) => message,
+        Ok(()) | Err(_) => String::new(),
+    };
+    assert!(message.contains("value cannot be empty"));
+}
+
+#[test]
 fn resolve_violation_exit_code_returns_zero_when_disabled() {
     let exit_code = super::resolve_violation_exit_code(false, &[10, 20, 30]);
     assert_eq!(exit_code, 0);
@@ -963,4 +1009,159 @@ fn autodiscover_config_falls_back_to_next_available_candidate() {
     let _ = fs::remove_dir_all(&root);
 
     assert_eq!(found, Some(selected_candidate));
+}
+
+#[test]
+fn resolve_config_source_distinguishes_auto_discover_file_and_stdin() {
+    let auto = super::resolve_config_source(None);
+    assert!(matches!(auto, ConfigSource::AutoDiscover));
+
+    let file_path = PathBuf::from("config.toml");
+    let file = super::resolve_config_source(Some(&file_path));
+    assert!(matches!(file, ConfigSource::File(_)));
+
+    let stdin_path = PathBuf::from("-");
+    let stdin = super::resolve_config_source(Some(&stdin_path));
+    assert!(matches!(stdin, ConfigSource::Stdin));
+}
+
+#[test]
+fn load_runtime_config_reads_explicit_file_and_preserves_settings() {
+    let since_epoch = SystemTime::now().duration_since(UNIX_EPOCH);
+    assert!(since_epoch.is_ok());
+    let Ok(duration) = since_epoch else {
+        return;
+    };
+
+    let root = std::env::temp_dir().join(format!(
+        "gitsnitch-load-runtime-config-{}-{}",
+        std::process::id(),
+        duration.as_nanos()
+    ));
+    assert!(fs::create_dir_all(&root).is_ok());
+
+    let config_path = root.join("runtime.toml");
+    let config = "api_version = \"pre\"\nviolation_severity_as_exit_code = true\n\n[custom_meta]\nteam = \"platform\"\n\n[severity_bands]\nFatal = 200\nError = 100\nWarning = 10\nInformation = 0\n\n[history]\nautoheal_shallow = \"full\"\nautoheal_shallow_shift = 3\nautoheal_shallow_tries = 2\n\n[[assertions]]\nalias = \"a1\"\nseverity = 10\n[assertions.must_satisfy]\n[assertions.must_satisfy.condition]\ntype = \"msg_match_any\"\nmode = \"raw\"\npatterns = [\"^feat\"]\n";
+    assert!(fs::write(&config_path, config).is_ok());
+
+    let mut args = test_args();
+    args.config = Some(config_path);
+    let remap = BTreeMap::new();
+
+    let loaded = super::load_runtime_config(&args, &remap);
+    let _ = fs::remove_dir_all(&root);
+
+    assert!(loaded.is_ok());
+    let Ok(loaded) = loaded else {
+        return;
+    };
+    assert_eq!(loaded.assertions.len(), 1);
+    assert!(matches!(
+        loaded.history.autoheal_shallow,
+        config::AutohealShallow::Full
+    ));
+    assert_eq!(loaded.history.autoheal_shallow_shift, 3);
+    assert_eq!(loaded.history.autoheal_shallow_tries, 2);
+    assert_eq!(loaded.severity_bands.fatal, 200);
+    assert_eq!(loaded.custom_meta.get("team"), Some(&"platform".to_owned()));
+    assert_eq!(loaded.violation_severity_as_exit_code, Some(true));
+}
+
+#[test]
+fn load_runtime_config_returns_config_error_for_invalid_explicit_file() {
+    let since_epoch = SystemTime::now().duration_since(UNIX_EPOCH);
+    assert!(since_epoch.is_ok());
+    let Ok(duration) = since_epoch else {
+        return;
+    };
+
+    let root = std::env::temp_dir().join(format!(
+        "gitsnitch-load-runtime-config-invalid-{}-{}",
+        std::process::id(),
+        duration.as_nanos()
+    ));
+    assert!(fs::create_dir_all(&root).is_ok());
+
+    let config_path = root.join("runtime.toml");
+    assert!(fs::write(&config_path, "this is not valid toml").is_ok());
+
+    let mut args = test_args();
+    args.config = Some(config_path);
+    let remap = BTreeMap::new();
+
+    let loaded = super::load_runtime_config(&args, &remap);
+    let _ = fs::remove_dir_all(&root);
+
+    assert!(loaded.is_err());
+    assert!(matches!(loaded, Err(AppError::Config(_))));
+}
+
+#[test]
+fn build_violation_banners_deduplicates_aliases_and_collects_short_shas() {
+    let violations = vec![
+        crate::violations::Violation {
+            commit_sha: "1234567890abcdef".to_owned(),
+            commit_title: "feat: one".to_owned(),
+            assertion_alias: "same".to_owned(),
+            assertion_description: "desc".to_owned(),
+            severity: 120,
+            banner: "{{ violation.commit_sha_short }} / {{ violations | length }}".to_owned(),
+            hint: "hint".to_owned(),
+        },
+        crate::violations::Violation {
+            commit_sha: "abcdef1234567890".to_owned(),
+            commit_title: "feat: two".to_owned(),
+            assertion_alias: "same".to_owned(),
+            assertion_description: "desc".to_owned(),
+            severity: 120,
+            banner: String::new(),
+            hint: "hint".to_owned(),
+        },
+    ];
+    let bands = config::SeverityBands::default();
+    let entries = super::build_violation_context_entries(&violations, &bands);
+    let by_band = super::group_entries_by_band(&entries);
+    let payloads = super::serialize_violation_payloads(&entries);
+    assert!(payloads.is_ok());
+
+    let banners = super::build_violation_banners(&by_band, &payloads.unwrap_or_default());
+    assert!(banners.is_ok());
+    let banners = banners.unwrap_or_default();
+
+    assert_eq!(banners.len(), 1);
+    let banner = banners.first();
+    assert!(banner.is_some());
+    let Some(banner) = banner else {
+        return;
+    };
+    assert_eq!(banner.assertion_alias, "same");
+    assert_eq!(banner.commit_sha_shorts.len(), 2);
+    assert!(banner.text.contains("1234567 / 2"));
+}
+
+#[test]
+fn emit_report_supports_json_variants() {
+    let violations = Vec::<crate::violations::Violation>::new();
+    let severity_bands = config::SeverityBands::default();
+    let custom_meta = config::CustomMeta::new();
+
+    let json = super::emit_report(
+        &violations,
+        &severity_bands,
+        false,
+        RenderOutput::Json,
+        &custom_meta,
+        "pre",
+    );
+    assert!(json.is_ok());
+
+    let json_compact = super::emit_report(
+        &violations,
+        &severity_bands,
+        false,
+        RenderOutput::JsonCompact,
+        &custom_meta,
+        "pre",
+    );
+    assert!(json_compact.is_ok());
 }

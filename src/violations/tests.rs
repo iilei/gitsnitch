@@ -70,6 +70,24 @@ fn evaluate_condition_supports_message_none_mode() {
 }
 
 #[test]
+fn evaluate_condition_supports_message_none_raw_and_title_modes() {
+    let commit = sample_commit_context();
+    let raw = config::Condition::MsgMatchNone(config::MsgMatchCondition {
+        name: "raw-none".to_owned(),
+        mode: config::MsgMode::Raw,
+        patterns: vec!["breaking change".to_owned()],
+    });
+    let title = config::Condition::MsgMatchNone(config::MsgMatchCondition {
+        name: "title-none".to_owned(),
+        mode: config::MsgMode::Title,
+        patterns: vec!["^fix".to_owned()],
+    });
+
+    assert_eq!(super::evaluate_condition(&raw, &commit).ok(), Some(true));
+    assert_eq!(super::evaluate_condition(&title, &commit).ok(), Some(true));
+}
+
+#[test]
 fn evaluate_condition_supports_diff_modes() {
     let commit = sample_commit_context();
     let raw = config::Condition::DiffMatchAny(config::DiffMatchCondition {
@@ -106,6 +124,24 @@ fn evaluate_condition_supports_diff_none_mode() {
         super::evaluate_condition(&condition, &commit).ok(),
         Some(true)
     );
+}
+
+#[test]
+fn evaluate_condition_supports_diff_none_raw_and_file_modes() {
+    let commit = sample_commit_context();
+    let raw = config::Condition::DiffMatchNone(config::DiffMatchCondition {
+        name: "diff-raw-none".to_owned(),
+        mode: config::DiffMode::Raw,
+        patterns: vec!["password".to_owned()],
+    });
+    let file = config::Condition::DiffMatchNone(config::DiffMatchCondition {
+        name: "diff-file-none".to_owned(),
+        mode: config::DiffMode::File,
+        patterns: vec!["Cargo\\.lock".to_owned()],
+    });
+
+    assert_eq!(super::evaluate_condition(&raw, &commit).ok(), Some(true));
+    assert_eq!(super::evaluate_condition(&file, &commit).ok(), Some(true));
 }
 
 #[test]
@@ -191,6 +227,13 @@ fn parse_numstat_totals_handles_regular_and_binary_rows() {
 }
 
 #[test]
+fn parse_numstat_totals_ignores_blank_and_pathless_rows() {
+    let numstat = "\n1\t2\tsrc/main.rs\n7\t8\n\n";
+    let totals = super::parse_numstat_totals(numstat);
+    assert_eq!(totals.ok(), Some((3, 1)));
+}
+
+#[test]
 fn parse_numstat_totals_rejects_invalid_added_number() {
     let numstat = "abc\t2\tsrc/main.rs\n";
     let result = super::parse_numstat_totals(numstat);
@@ -217,6 +260,19 @@ fn parse_numstat_totals_rejects_invalid_removed_number() {
 }
 
 #[test]
+fn parse_numstat_totals_rejects_line_count_overflow() {
+    let numstat = format!("{}\t1\ta.txt\n1\t0\tb.txt\n", u32::MAX);
+    let result = super::parse_numstat_totals(&numstat);
+    assert!(result.is_err());
+
+    let message = match result {
+        Err(crate::AppError::Message(message)) => message,
+        Ok(_) | Err(_) => String::new(),
+    };
+    assert!(message.contains("line count overflow while parsing git numstat"));
+}
+
+#[test]
 fn matches_any_regex_returns_false_when_no_patterns_match() {
     let patterns = vec!["foo".to_owned(), "bar".to_owned()];
     let result = super::matches_any_regex(&patterns, "baz");
@@ -233,6 +289,18 @@ fn add_context_prefixes_message_errors() {
         _ => String::new(),
     };
     assert_eq!(message, "outer: inner");
+}
+
+#[test]
+fn add_context_preserves_non_message_errors() {
+    let error = crate::AppError::Config(config::ConfigError::Semantic("inner".to_owned()));
+    let contextual = super::add_context(error, "outer");
+
+    let message = match contextual {
+        crate::AppError::Config(config::ConfigError::Semantic(message)) => message,
+        _ => String::new(),
+    };
+    assert_eq!(message, "inner");
 }
 
 #[test]
