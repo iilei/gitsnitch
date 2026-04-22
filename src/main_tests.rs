@@ -1,8 +1,7 @@
 use super::{
     AppError, Args, ConfigSource, DEFAULT_ENV_PREFIX, RenderOutput, autodiscover_config,
-    check_is_repo_at, git_repo_root_at, parse_remap_env_vars, read_config_content,
-    read_config_content_from_reader, remapped_or_prefixed_env_non_empty_with_lookup,
-    severity_band_label, validate_env_resolution_mode,
+    check_is_repo_at, git_repo_root_at, read_config_content, read_config_content_from_reader,
+    severity_band_label,
 };
 use crate::config;
 use clap::Parser;
@@ -32,8 +31,8 @@ fn test_args() -> Args {
     }
 }
 
-fn test_emit_options(output_format: RenderOutput) -> super::EmitOptions<'static> {
-    super::EmitOptions {
+fn test_emit_options(output_format: RenderOutput) -> super::report_output::EmitOptions<'static> {
+    super::report_output::EmitOptions {
         output_format,
         gitsnitch_json_path: None,
     }
@@ -42,14 +41,14 @@ fn test_emit_options(output_format: RenderOutput) -> super::EmitOptions<'static>
 #[test]
 fn validate_custom_meta_accepts_valid_entries() {
     let entries = vec!["team=platform".to_owned(), "env=ci".to_owned()];
-    let result = super::validate_custom_meta(&entries);
+    let result = super::cli::validate_custom_meta(&entries);
     assert!(result.is_ok());
 }
 
 #[test]
 fn validate_custom_meta_rejects_entry_without_separator() {
     let entries = vec!["team-platform".to_owned()];
-    let result = super::validate_custom_meta(&entries);
+    let result = super::cli::validate_custom_meta(&entries);
     assert!(result.is_err());
 
     let message = match result {
@@ -62,7 +61,7 @@ fn validate_custom_meta_rejects_entry_without_separator() {
 #[test]
 fn validate_custom_meta_rejects_empty_key() {
     let entries = vec!["   =value".to_owned()];
-    let result = super::validate_custom_meta(&entries);
+    let result = super::cli::validate_custom_meta(&entries);
     assert!(result.is_err());
 
     let message = match result {
@@ -75,7 +74,7 @@ fn validate_custom_meta_rejects_empty_key() {
 #[test]
 fn validate_custom_meta_rejects_empty_value() {
     let entries = vec!["key=   ".to_owned()];
-    let result = super::validate_custom_meta(&entries);
+    let result = super::cli::validate_custom_meta(&entries);
     assert!(result.is_err());
 
     let message = match result {
@@ -145,7 +144,7 @@ fn resolve_lint_scope_uses_commit_sha_when_provided() {
     args.commit_sha = Some("abc123".to_owned());
     let remap = BTreeMap::new();
 
-    let scope = super::resolve_lint_scope(&args, &remap);
+    let scope = super::runtime_inputs::resolve_lint_scope(&args, &remap);
     assert!(scope.is_ok());
     let scope = scope.ok();
     assert!(matches!(scope, Some(super::LintScope::CommitSha(_))));
@@ -161,7 +160,7 @@ fn resolve_lint_scope_uses_ref_range_when_both_refs_are_provided() {
     args.target_ref = Some("main".to_owned());
     let remap = BTreeMap::new();
 
-    let scope = super::resolve_lint_scope(&args, &remap);
+    let scope = super::runtime_inputs::resolve_lint_scope(&args, &remap);
     assert!(scope.is_ok());
 
     let scope = scope.ok();
@@ -184,7 +183,7 @@ fn resolve_lint_scope_rejects_mixing_commit_and_ref_range_modes() {
     args.target_ref = Some("main".to_owned());
     let remap = BTreeMap::new();
 
-    let result = super::resolve_lint_scope(&args, &remap);
+    let result = super::runtime_inputs::resolve_lint_scope(&args, &remap);
     assert!(result.is_err());
 
     let message = match result {
@@ -200,7 +199,7 @@ fn resolve_lint_scope_rejects_partial_ref_range() {
     args.source_ref = Some("feature".to_owned());
     let remap = BTreeMap::new();
 
-    let result = super::resolve_lint_scope(&args, &remap);
+    let result = super::runtime_inputs::resolve_lint_scope(&args, &remap);
     assert!(result.is_err());
 
     let message = match result {
@@ -215,7 +214,7 @@ fn resolve_lint_scope_rejects_missing_scope() {
     let args = test_args();
     let remap = BTreeMap::new();
 
-    let result = super::resolve_lint_scope(&args, &remap);
+    let result = super::runtime_inputs::resolve_lint_scope(&args, &remap);
     assert!(result.is_err());
 
     let message = match result {
@@ -227,7 +226,7 @@ fn resolve_lint_scope_rejects_missing_scope() {
 
 #[test]
 fn terminal_supports_color_respects_no_color_precedence() {
-    let value = super::terminal_supports_color_from_inputs(
+    let value = super::report_output::terminal_supports_color_from_inputs(
         true,
         Some("xterm-256color"),
         Some("1"),
@@ -239,13 +238,19 @@ fn terminal_supports_color_respects_no_color_precedence() {
 
 #[test]
 fn terminal_supports_color_disables_for_term_dumb() {
-    let value = super::terminal_supports_color_from_inputs(false, Some("dumb"), None, None, true);
+    let value = super::report_output::terminal_supports_color_from_inputs(
+        false,
+        Some("dumb"),
+        None,
+        None,
+        true,
+    );
     assert!(!value);
 }
 
 #[test]
 fn terminal_supports_color_enables_for_clicolor_force() {
-    let value = super::terminal_supports_color_from_inputs(
+    let value = super::report_output::terminal_supports_color_from_inputs(
         false,
         Some("xterm"),
         Some("1"),
@@ -257,15 +262,22 @@ fn terminal_supports_color_enables_for_clicolor_force() {
 
 #[test]
 fn terminal_supports_color_disables_for_clicolor_zero() {
-    let value =
-        super::terminal_supports_color_from_inputs(false, Some("xterm"), None, Some("0"), true);
+    let value = super::report_output::terminal_supports_color_from_inputs(
+        false,
+        Some("xterm"),
+        None,
+        Some("0"),
+        true,
+    );
     assert!(!value);
 }
 
 #[test]
 fn terminal_supports_color_falls_back_to_tty_state() {
-    let tty_true = super::terminal_supports_color_from_inputs(false, None, None, None, true);
-    let tty_false = super::terminal_supports_color_from_inputs(false, None, None, None, false);
+    let tty_true =
+        super::report_output::terminal_supports_color_from_inputs(false, None, None, None, true);
+    let tty_false =
+        super::report_output::terminal_supports_color_from_inputs(false, None, None, None, false);
     assert!(tty_true);
     assert!(!tty_false);
 }
@@ -306,7 +318,7 @@ fn validate_gitsnitch_json_path_rejects_dash() {
     let mut args = test_args();
     args.gitsnitch_json = Some(PathBuf::from("-"));
 
-    let result = super::validate_gitsnitch_json_path(&args);
+    let result = super::cli::validate_gitsnitch_json_path(&args);
     assert!(result.is_err());
 
     let message = match result {
@@ -355,7 +367,7 @@ fn parse_remap_env_vars_accepts_supported_keys() {
         "GITSNITCH_CONFIG_ROOT=CI_CONFIG_ROOT".to_owned(),
     ];
 
-    let result = parse_remap_env_vars(&entries);
+    let result = super::runtime_inputs::parse_remap_env_vars(&entries);
     assert!(result.is_ok());
 
     let remap = result.unwrap_or_default();
@@ -393,7 +405,7 @@ fn remap_supported_keys_set_is_intentionally_limited() {
 fn parse_remap_env_vars_rejects_unsupported_key() {
     let entries = vec!["SOURCE_REF=MY_SOURCE".to_owned()];
 
-    let result = parse_remap_env_vars(&entries);
+    let result = super::runtime_inputs::parse_remap_env_vars(&entries);
     assert!(result.is_err());
 
     let error_message = match result {
@@ -411,7 +423,7 @@ fn parse_remap_env_vars_rejects_duplicate_keys() {
         "GITSNITCH_SOURCE_REF=B".to_owned(),
     ];
 
-    let result = parse_remap_env_vars(&entries);
+    let result = super::runtime_inputs::parse_remap_env_vars(&entries);
     assert!(result.is_err());
 
     let error_message = match result {
@@ -426,7 +438,7 @@ fn parse_remap_env_vars_rejects_duplicate_keys() {
 fn parse_remap_env_vars_rejects_entry_without_separator() {
     let entries = vec!["GITSNITCH_SOURCE_REF".to_owned()];
 
-    let result = parse_remap_env_vars(&entries);
+    let result = super::runtime_inputs::parse_remap_env_vars(&entries);
     assert!(result.is_err());
 
     let error_message = match result {
@@ -441,7 +453,7 @@ fn parse_remap_env_vars_rejects_entry_without_separator() {
 fn parse_remap_env_vars_rejects_empty_key() {
     let entries = vec!["   =PRE_COMMIT_TO_REF".to_owned()];
 
-    let result = parse_remap_env_vars(&entries);
+    let result = super::runtime_inputs::parse_remap_env_vars(&entries);
     assert!(result.is_err());
 
     let error_message = match result {
@@ -456,7 +468,7 @@ fn parse_remap_env_vars_rejects_empty_key() {
 fn parse_remap_env_vars_rejects_empty_env_var_name() {
     let entries = vec!["GITSNITCH_SOURCE_REF=   ".to_owned()];
 
-    let result = parse_remap_env_vars(&entries);
+    let result = super::runtime_inputs::parse_remap_env_vars(&entries);
     assert!(result.is_err());
 
     let error_message = match result {
@@ -473,7 +485,7 @@ fn validate_env_resolution_mode_rejects_custom_prefix_with_remap() {
     args.env_prefix = "MY_CUSTOM_".to_owned();
     args.remap_env_var = vec!["GITSNITCH_SOURCE_REF=PRE_COMMIT_TO_REF".to_owned()];
 
-    let result = validate_env_resolution_mode(&args);
+    let result = super::cli::validate_env_resolution_mode(&args);
     assert!(result.is_err());
 
     let error_message = match result {
@@ -496,7 +508,7 @@ fn remapped_lookup_prefers_remapped_env_var_over_prefixed_env_var() {
     env_map.insert("PRE_COMMIT_TO_REF".to_owned(), "abc123".to_owned());
     env_map.insert("GITSNITCH_SOURCE_REF".to_owned(), "fallback".to_owned());
 
-    let resolved = remapped_or_prefixed_env_non_empty_with_lookup(
+    let resolved = super::runtime_inputs::remapped_or_prefixed_env_non_empty_with_lookup(
         DEFAULT_ENV_PREFIX,
         "SOURCE_REF",
         &remap,
@@ -518,7 +530,7 @@ fn remapped_lookup_does_not_fallback_when_remapped_env_var_is_empty() {
     env_map.insert("PRE_COMMIT_TO_REF".to_owned(), "   ".to_owned());
     env_map.insert("GITSNITCH_SOURCE_REF".to_owned(), "fallback".to_owned());
 
-    let resolved = remapped_or_prefixed_env_non_empty_with_lookup(
+    let resolved = super::runtime_inputs::remapped_or_prefixed_env_non_empty_with_lookup(
         DEFAULT_ENV_PREFIX,
         "SOURCE_REF",
         &remap,
@@ -534,7 +546,7 @@ fn remapped_lookup_uses_prefix_when_key_is_not_remapped() {
     let mut env_map = BTreeMap::new();
     env_map.insert("GITSNITCH_TARGET_REF".to_owned(), "main".to_owned());
 
-    let resolved = remapped_or_prefixed_env_non_empty_with_lookup(
+    let resolved = super::runtime_inputs::remapped_or_prefixed_env_non_empty_with_lookup(
         DEFAULT_ENV_PREFIX,
         "TARGET_REF",
         &remap,
@@ -559,7 +571,7 @@ fn remapped_lookup_supports_config_root_key() {
         "/tmp/fallback".to_owned(),
     );
 
-    let resolved = remapped_or_prefixed_env_non_empty_with_lookup(
+    let resolved = super::runtime_inputs::remapped_or_prefixed_env_non_empty_with_lookup(
         DEFAULT_ENV_PREFIX,
         "CONFIG_ROOT",
         &remap,

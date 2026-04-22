@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::ffi::OsStr;
-use std::io::{self, IsTerminal, Read};
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::process::{self, Command};
 
@@ -11,10 +11,15 @@ use minijinja::Environment;
 use serde::Serialize;
 use thiserror::Error;
 
+pub mod cli;
 mod config;
 mod exit_codes;
 mod presets;
+pub mod report_output;
+pub mod runtime_inputs;
 mod violations;
+
+use report_output::EmitOptions;
 
 const EXIT_INTERNAL_GENERIC: i32 = 251;
 const EXIT_INTERNAL_CONFIG: i32 = 252;
@@ -22,10 +27,11 @@ const EXIT_INTERNAL_DEPENDENCY: i32 = 253;
 const EXIT_INTERNAL_IO: i32 = 254;
 const EXIT_INTERNAL_UNEXPECTED: i32 = 255;
 const DEFAULT_ENV_PREFIX: &str = "GITSNITCH_";
+#[cfg(test)]
 const TEXT_REPORT_TEMPLATE: &str = include_str!("templates/report_decorative_text.jinja2");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-enum RenderOutput {
+pub enum RenderOutput {
     Json,
     JsonCompact,
     TextPlain,
@@ -242,194 +248,11 @@ fn autodiscover_config(root: &Path) -> Option<PathBuf> {
         .find(|p| p.is_file())
 }
 
-fn validate_custom_meta(entries: &[String]) -> Result<(), AppError> {
-    for entry in entries {
-        let Some((key, value)) = entry.split_once('=') else {
-            return Err(AppError::Message(format!(
-                "invalid --custom-meta entry '{entry}': expected key=value"
-            )));
-        };
-
-        if key.trim().is_empty() {
-            return Err(AppError::Message(format!(
-                "invalid --custom-meta entry '{entry}': key cannot be empty"
-            )));
-        }
-
-        if value.trim().is_empty() {
-            return Err(AppError::Message(format!(
-                "invalid --custom-meta entry '{entry}': value cannot be empty"
-            )));
-        }
-    }
-
-    Ok(())
-}
-
 fn resolve_config_source(config: Option<&PathBuf>) -> ConfigSource {
     match config {
         Some(path) if path.as_os_str() == OsStr::new("-") => ConfigSource::Stdin,
         Some(path) => ConfigSource::File(path.clone()),
         None => ConfigSource::AutoDiscover,
-    }
-}
-
-fn prefixed_env_non_empty_with_lookup<F>(
-    prefix: &str,
-    key_suffix: &str,
-    lookup: F,
-) -> Option<String>
-where
-    F: Fn(&str) -> Option<String>,
-{
-    let key = format!("{prefix}{key_suffix}");
-    normalize_opt_non_empty(lookup(&key))
-}
-
-fn normalize_opt_non_empty(value: Option<String>) -> Option<String> {
-    value
-        .map(|v| v.trim().to_owned())
-        .and_then(|v| if v.is_empty() { None } else { Some(v) })
-}
-
-fn canonical_prefixed_key(key_suffix: &str) -> String {
-    format!("{DEFAULT_ENV_PREFIX}{key_suffix}")
-}
-
-fn validate_env_resolution_mode(args: &Args) -> Result<(), AppError> {
-    if !args.remap_env_var.is_empty() && args.env_prefix != DEFAULT_ENV_PREFIX {
-        return Err(AppError::Message(
-            "--remap-env-var is mutually exclusive with non-default --env-prefix; use default GITSNITCH_ prefix when remapping"
-                .to_owned(),
-        ));
-    }
-
-    Ok(())
-}
-
-fn validate_gitsnitch_json_path(args: &Args) -> Result<(), AppError> {
-    let Some(path) = &args.gitsnitch_json else {
-        return Ok(());
-    };
-
-    if path.as_os_str() == OsStr::new("-") {
-        return Err(AppError::Message(
-            "--gitsnitch-json does not accept '-' ; provide a real file path".to_owned(),
-        ));
-    }
-
-    Ok(())
-}
-
-fn parse_remap_env_vars(entries: &[String]) -> Result<BTreeMap<String, String>, AppError> {
-    let mut remap_env_vars = BTreeMap::new();
-
-    for entry in entries {
-        let Some((key_raw, env_var_raw)) = entry.split_once('=') else {
-            return Err(AppError::Message(format!(
-                "invalid --remap-env-var entry '{entry}': expected KEY=ENV_VAR"
-            )));
-        };
-
-        let key = key_raw.trim();
-        let env_var = env_var_raw.trim();
-
-        if key.is_empty() {
-            return Err(AppError::Message(format!(
-                "invalid --remap-env-var entry '{entry}': key cannot be empty"
-            )));
-        }
-        if env_var.is_empty() {
-            return Err(AppError::Message(format!(
-                "invalid --remap-env-var entry '{entry}': env var cannot be empty"
-            )));
-        }
-
-        if !REMAP_SUPPORTED_KEYS.contains(&key) {
-            return Err(AppError::Message(format!(
-                "invalid --remap-env-var key '{key}': supported keys are {}",
-                REMAP_SUPPORTED_KEYS.join(", ")
-            )));
-        }
-
-        if remap_env_vars
-            .insert(key.to_owned(), env_var.to_owned())
-            .is_some()
-        {
-            return Err(AppError::Message(format!(
-                "duplicate --remap-env-var key '{key}': each key can only be remapped once"
-            )));
-        }
-    }
-
-    Ok(remap_env_vars)
-}
-
-fn remapped_or_prefixed_env_non_empty(
-    prefix: &str,
-    key_suffix: &str,
-    remap_env_vars: &BTreeMap<String, String>,
-) -> Option<String> {
-    remapped_or_prefixed_env_non_empty_with_lookup(prefix, key_suffix, remap_env_vars, |key| {
-        env::var(key).ok()
-    })
-}
-
-fn remapped_or_prefixed_env_non_empty_with_lookup<F>(
-    prefix: &str,
-    key_suffix: &str,
-    remap_env_vars: &BTreeMap<String, String>,
-    lookup: F,
-) -> Option<String>
-where
-    F: Fn(&str) -> Option<String>,
-{
-    let canonical_key = canonical_prefixed_key(key_suffix);
-    if let Some(remapped_env_var) = remap_env_vars.get(&canonical_key) {
-        return normalize_opt_non_empty(lookup(remapped_env_var));
-    }
-
-    prefixed_env_non_empty_with_lookup(prefix, key_suffix, lookup)
-}
-
-fn resolve_lint_scope(
-    args: &Args,
-    remap_env_vars: &BTreeMap<String, String>,
-) -> Result<LintScope, AppError> {
-    let commit_sha = normalize_opt_non_empty(args.commit_sha.clone()).or_else(|| {
-        remapped_or_prefixed_env_non_empty(&args.env_prefix, "COMMIT_SHA", remap_env_vars)
-    });
-
-    let source_ref = normalize_opt_non_empty(args.source_ref.clone()).or_else(|| {
-        remapped_or_prefixed_env_non_empty(&args.env_prefix, "SOURCE_REF", remap_env_vars)
-    });
-
-    let target_ref = normalize_opt_non_empty(args.target_ref.clone()).or_else(|| {
-        remapped_or_prefixed_env_non_empty(&args.env_prefix, "TARGET_REF", remap_env_vars)
-    });
-
-    if commit_sha.is_some() && (source_ref.is_some() || target_ref.is_some()) {
-        return Err(AppError::Message(
-            "commit scope and ref range scope are mutually exclusive; use either --commit-sha or both --source-ref and --target-ref"
-                .to_owned(),
-        ));
-    }
-
-    match (commit_sha, source_ref, target_ref) {
-        (Some(sha), None, None) => Ok(LintScope::CommitSha(sha)),
-        (None, Some(source), Some(target)) => Ok(LintScope::RefRange {
-            source_ref: source,
-            target_ref: target,
-        }),
-        (None, Some(_), None) | (None, None, Some(_)) => Err(AppError::Message(
-            "ref range scope requires both --source-ref and --target-ref"
-                .to_owned(),
-        )),
-        (None, None, None) => Err(AppError::Message(
-            "no lint scope provided; set either --commit-sha or both --source-ref and --target-ref (or equivalent env vars)"
-                .to_owned(),
-        )),
-        _ => Err(AppError::Message("invalid lint scope combination".to_owned())),
     }
 }
 
@@ -497,7 +320,7 @@ fn load_runtime_config(
     let config_source = resolve_config_source(args.config.as_ref());
     let resolved_source = match config_source {
         ConfigSource::AutoDiscover => {
-            let root = match remapped_or_prefixed_env_non_empty(
+            let root = match runtime_inputs::remapped_or_prefixed_env_non_empty_for_runtime(
                 &args.env_prefix,
                 "CONFIG_ROOT",
                 remap_env_vars,
@@ -537,19 +360,19 @@ fn load_runtime_config(
 }
 
 fn run(args: &Args) -> Result<(), AppError> {
-    validate_custom_meta(&args.custom_meta)?;
-    validate_env_resolution_mode(args)?;
-    validate_gitsnitch_json_path(args)?;
+    cli::validate_custom_meta(&args.custom_meta)?;
+    cli::validate_env_resolution_mode(args)?;
+    cli::validate_gitsnitch_json_path(args)?;
     presets::validate_cli_preset_names(&args.preset)?;
 
-    let remap_env_vars = parse_remap_env_vars(&args.remap_env_var)?;
+    let remap_env_vars = runtime_inputs::parse_remap_env_vars(&args.remap_env_var)?;
     if args.verbose >= 3 {
         for (key, env_var) in &remap_env_vars {
             eprintln!("env remap: {key} <- {env_var}");
         }
     }
 
-    let lint_scope = resolve_lint_scope(args, &remap_env_vars)?;
+    let lint_scope = runtime_inputs::resolve_lint_scope(args, &remap_env_vars)?;
     log_lint_scope(&lint_scope, args.verbose);
 
     let loaded = load_runtime_config(args, &remap_env_vars)?;
@@ -742,11 +565,6 @@ struct JsonReport<'a> {
     violations: ViolationsByBand,
 }
 
-struct EmitOptions<'a> {
-    output_format: RenderOutput,
-    gitsnitch_json_path: Option<&'a Path>,
-}
-
 const BAND_ORDER: &[&str] = &["Fatal", "Error", "Warning", "Information"];
 
 fn format_violation_code(severity_band: &str, severity: u8) -> String {
@@ -919,7 +737,7 @@ fn build_violations_by_band(
 
 fn generate_range_string(scope: &LintScope) -> String {
     match scope {
-        LintScope::CommitSha(sha) => format!("{sha}^..{sha}"),
+        LintScope::CommitSha(sha) => sha.clone(),
         LintScope::RefRange {
             source_ref,
             target_ref,
@@ -953,94 +771,6 @@ fn build_report<'a>(
     })
 }
 
-fn serialize_json_report(
-    report: &JsonReport<'_>,
-    compact_output: bool,
-) -> Result<String, AppError> {
-    (if compact_output {
-        serde_json::to_string(report)
-    } else {
-        serde_json::to_string_pretty(report)
-    })
-    .map_err(|error| AppError::Message(format!("failed to serialize report as JSON: {error}")))
-}
-
-fn emit_json_report(report: &JsonReport<'_>, compact_output: bool) -> Result<(), AppError> {
-    let serialized = serialize_json_report(report, compact_output)?;
-    println!("{serialized}");
-
-    Ok(())
-}
-
-#[derive(Debug, Serialize)]
-struct TerminalRenderContext {
-    supports_color: bool,
-    is_ci: bool,
-}
-
-fn detect_terminal_supports_color() -> bool {
-    let no_color_present = env::var_os("NO_COLOR").is_some();
-    let term = env::var("TERM").ok();
-    let clicolor_force = env::var("CLICOLOR_FORCE").ok();
-    let clicolor = env::var("CLICOLOR").ok();
-
-    terminal_supports_color_from_inputs(
-        no_color_present,
-        term.as_deref(),
-        clicolor_force.as_deref(),
-        clicolor.as_deref(),
-        io::stdout().is_terminal(),
-    )
-}
-
-fn terminal_supports_color_from_inputs(
-    no_color_present: bool,
-    term: Option<&str>,
-    clicolor_force: Option<&str>,
-    clicolor: Option<&str>,
-    stdout_is_terminal: bool,
-) -> bool {
-    if no_color_present {
-        return false;
-    }
-
-    if term.is_some_and(|value| value.eq_ignore_ascii_case("dumb")) {
-        return false;
-    }
-
-    if clicolor_force.is_some_and(|value| value != "0") {
-        return true;
-    }
-
-    if clicolor.is_some_and(|value| value == "0") {
-        return false;
-    }
-
-    stdout_is_terminal
-}
-
-fn emit_text_report(supports_color: bool, report: &JsonReport<'_>) -> Result<(), AppError> {
-    let template_source = TEXT_REPORT_TEMPLATE;
-
-    let terminal = TerminalRenderContext {
-        supports_color,
-        is_ci: env::var_os("CI").is_some(),
-    };
-    let environment = Environment::new();
-    let rendered = environment
-        .render_str(
-            template_source,
-            minijinja::context!(report => report, terminal => terminal),
-        )
-        .map_err(|error| {
-            AppError::Message(format!("failed to render plain-text report: {error}"))
-        })?;
-
-    println!("{rendered}");
-
-    Ok(())
-}
-
 fn emit_report(
     collected_violations: &[violations::Violation],
     severity_bands: &config::SeverityBands,
@@ -1059,22 +789,7 @@ fn emit_report(
         scope,
     )?;
 
-    if let Some(path) = emit_options.gitsnitch_json_path {
-        let serialized = serialize_json_report(&report, false)?;
-        std::fs::write(path, format!("{serialized}\n")).map_err(|error| {
-            AppError::Message(format!(
-                "failed to write --gitsnitch-json output to '{}': {error}",
-                path.display()
-            ))
-        })?;
-    }
-
-    match emit_options.output_format {
-        RenderOutput::Json => emit_json_report(&report, false),
-        RenderOutput::JsonCompact => emit_json_report(&report, true),
-        RenderOutput::TextPlain => emit_text_report(false, &report),
-        RenderOutput::TextDecorative => emit_text_report(detect_terminal_supports_color(), &report),
-    }
+    report_output::emit_report_output(&report, emit_options)
 }
 
 fn main() {
