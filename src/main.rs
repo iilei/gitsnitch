@@ -49,6 +49,12 @@ struct Args {
     #[arg(long, value_enum, default_value_t = RenderOutput::TextDecorative)]
     output_format: RenderOutput,
 
+    /// Write an additional JSON report to this file path.
+    ///
+    /// This flag does not affect terminal output formatting.
+    #[arg(long = "gitsnitch-json", value_name = "PATH")]
+    gitsnitch_json: Option<PathBuf>,
+
     /// Override config and force violation severity to be used as process exit code.
     #[arg(
         long,
@@ -301,6 +307,20 @@ fn validate_env_resolution_mode(args: &Args) -> Result<(), AppError> {
     Ok(())
 }
 
+fn validate_gitsnitch_json_path(args: &Args) -> Result<(), AppError> {
+    let Some(path) = &args.gitsnitch_json else {
+        return Ok(());
+    };
+
+    if path.as_os_str() == OsStr::new("-") {
+        return Err(AppError::Message(
+            "--gitsnitch-json does not accept '-' ; provide a real file path".to_owned(),
+        ));
+    }
+
+    Ok(())
+}
+
 fn parse_remap_env_vars(entries: &[String]) -> Result<BTreeMap<String, String>, AppError> {
     let mut remap_env_vars = BTreeMap::new();
 
@@ -519,6 +539,7 @@ fn load_runtime_config(
 fn run(args: &Args) -> Result<(), AppError> {
     validate_custom_meta(&args.custom_meta)?;
     validate_env_resolution_mode(args)?;
+    validate_gitsnitch_json_path(args)?;
     presets::validate_cli_preset_names(&args.preset)?;
 
     let remap_env_vars = parse_remap_env_vars(&args.remap_env_var)?;
@@ -567,11 +588,15 @@ fn run(args: &Args) -> Result<(), AppError> {
         .collect::<Vec<_>>();
 
     let api_version_str = "pre";
+    let emit_options = EmitOptions {
+        output_format: args.output_format,
+        gitsnitch_json_path: args.gitsnitch_json.as_deref(),
+    };
     emit_report(
         &collected.violations,
         &severity_bands,
         effective_violation_severity_as_exit_code,
-        args.output_format,
+        &emit_options,
         &config_custom_meta,
         api_version_str,
         &lint_scope,
@@ -715,6 +740,11 @@ struct JsonReport<'a> {
     custom_meta: &'a config::CustomMeta,
     violation_banners: Vec<ViolationBanner>,
     violations: ViolationsByBand,
+}
+
+struct EmitOptions<'a> {
+    output_format: RenderOutput,
+    gitsnitch_json_path: Option<&'a Path>,
 }
 
 const BAND_ORDER: &[&str] = &["Fatal", "Error", "Warning", "Information"];
@@ -1015,7 +1045,7 @@ fn emit_report(
     collected_violations: &[violations::Violation],
     severity_bands: &config::SeverityBands,
     effective_violation_severity_as_exit_code: bool,
-    output_format: RenderOutput,
+    emit_options: &EmitOptions<'_>,
     custom_meta: &config::CustomMeta,
     api_version_str: &str,
     scope: &LintScope,
@@ -1029,7 +1059,17 @@ fn emit_report(
         scope,
     )?;
 
-    match output_format {
+    if let Some(path) = emit_options.gitsnitch_json_path {
+        let serialized = serialize_json_report(&report, false)?;
+        std::fs::write(path, format!("{serialized}\n")).map_err(|error| {
+            AppError::Message(format!(
+                "failed to write --gitsnitch-json output to '{}': {error}",
+                path.display()
+            ))
+        })?;
+    }
+
+    match emit_options.output_format {
         RenderOutput::Json => emit_json_report(&report, false),
         RenderOutput::JsonCompact => emit_json_report(&report, true),
         RenderOutput::TextPlain => emit_text_report(false, &report),

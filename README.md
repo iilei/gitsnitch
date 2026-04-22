@@ -273,6 +273,14 @@ Decorative terminal text:
 gitsnitch --output-format text-decorative ...
 ```
 
+Additionally write a JSON artifact to a file (without changing terminal output style):
+
+```sh
+gitsnitch --output-format text-decorative --gitsnitch-json report.json ...
+```
+
+`--gitsnitch-json` requires a real file path and does not accept `-`.
+
 **Note:** terminal output honors `NO_COLOR` and `CI` to stay automation-friendly.
 For machine-readable output, prefer `json` or `json-compact`.
 </details>

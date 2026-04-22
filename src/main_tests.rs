@@ -18,6 +18,7 @@ fn test_args() -> Args {
         config: None,
         verbose: 0,
         output_format: RenderOutput::Json,
+        gitsnitch_json: None,
         violation_severity_as_exit_code: 0,
         no_violation_severity_as_exit_code: 0,
         custom_meta: vec![],
@@ -28,6 +29,13 @@ fn test_args() -> Args {
         default_branch: None,
         env_prefix: DEFAULT_ENV_PREFIX.to_owned(),
         remap_env_var: vec![],
+    }
+}
+
+fn test_emit_options(output_format: RenderOutput) -> super::EmitOptions<'static> {
+    super::EmitOptions {
+        output_format,
+        gitsnitch_json_path: None,
     }
 }
 
@@ -278,6 +286,37 @@ fn args_parser_accepts_text_decorative_output_format() {
 }
 
 #[test]
+fn args_parser_accepts_gitsnitch_json_path() {
+    let parsed = Args::try_parse_from([
+        "gitsnitch",
+        "--gitsnitch-json",
+        "report.json",
+        "--commit-sha",
+        "deadbeef",
+    ]);
+    assert!(parsed.is_ok());
+
+    let args = parsed.unwrap_or_else(|_| test_args());
+    let path = args.gitsnitch_json.as_deref();
+    assert_eq!(path, Some(std::path::Path::new("report.json")));
+}
+
+#[test]
+fn validate_gitsnitch_json_path_rejects_dash() {
+    let mut args = test_args();
+    args.gitsnitch_json = Some(PathBuf::from("-"));
+
+    let result = super::validate_gitsnitch_json_path(&args);
+    assert!(result.is_err());
+
+    let message = match result {
+        Err(AppError::Message(message)) => message,
+        Ok(()) | Err(_) => String::new(),
+    };
+    assert!(message.contains("does not accept '-'"));
+}
+
+#[test]
 fn emit_report_supports_plain_and_decorative_text_variants() {
     let violations = Vec::<crate::violations::Violation>::new();
     let severity_bands = config::SeverityBands::default();
@@ -288,7 +327,7 @@ fn emit_report_supports_plain_and_decorative_text_variants() {
         &violations,
         &severity_bands,
         false,
-        RenderOutput::TextPlain,
+        &test_emit_options(RenderOutput::TextPlain),
         &custom_meta,
         "pre",
         &scope,
@@ -299,7 +338,7 @@ fn emit_report_supports_plain_and_decorative_text_variants() {
         &violations,
         &severity_bands,
         false,
-        RenderOutput::TextDecorative,
+        &test_emit_options(RenderOutput::TextDecorative),
         &custom_meta,
         "pre",
         &scope,
@@ -1156,7 +1195,7 @@ fn emit_report_supports_json_variants() {
         &violations,
         &severity_bands,
         false,
-        RenderOutput::Json,
+        &test_emit_options(RenderOutput::Json),
         &custom_meta,
         "pre",
         &scope,
@@ -1167,7 +1206,7 @@ fn emit_report_supports_json_variants() {
         &violations,
         &severity_bands,
         false,
-        RenderOutput::JsonCompact,
+        &test_emit_options(RenderOutput::JsonCompact),
         &custom_meta,
         "pre",
         &scope,

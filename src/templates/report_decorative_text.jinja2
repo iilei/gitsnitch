@@ -36,12 +36,14 @@
 {%- set wantColor = terminal is defined and terminal.supports_color -%}
 {%- set severity_colors = {"Fatal": RED, "Error": ORANGE, "Warning": YELLOW, "Information": CYAN} -%}
 {%- set ns = namespace(seen_commit_shas=[], unique_commit_count=0) -%}
+{%- if  report.violation_banners | length > 0 -%}
 {%- if wantColor and terminal.is_ci is false -%}
 {%- set colored_art = art | replace(_ORANGE_, ORANGE ~ _FULL_ ~ RESET) -%}
 {{ colored_art | replace(RESET ~ ORANGE, '') }}{{- '\n' -}}
 {%- else -%}
 {%- if terminal.is_ci is false -%}
 {{ art }}{{- '\n' -}}
+{%- endif -%}
 {%- endif -%}
 {%- endif -%}
 {{ "*" * line_width }}
@@ -83,4 +85,6 @@ Commits
 {%- endif %}
 flagged commits: {{ ns.unique_commit_count }}
 validated range: {{ report.git_range }}
+{%- if  report.violation_banners | length > 0 %}
 {{ "-" * line_width }}
+{%- endif %}
