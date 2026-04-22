@@ -36,6 +36,6 @@ trim = true
 # parse the commits based on https://www.conventionalcommits.org
 conventional_commits = true
 # filter out commits by patterns (regex)
-skip_tags = ""
+skip_tags = "^0.1.0-canary.50"
 # sort commits
 sort_commits = "newest"
