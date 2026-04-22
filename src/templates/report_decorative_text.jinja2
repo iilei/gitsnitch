@@ -1,8 +1,3 @@
-{%- set line_width = 80 -%}
-{%- set ORANGE = '\033[38;5;208m' -%}
-{%- set RESET = '\033[0m' -%}
-{%- set _ORANGE_ = '▓' -%}
-{%- set _FULL_ = '█' -%}
 {%- set art %}
                                                                   ▄▀▀▀▄
                                                                 ██   ██
@@ -29,26 +24,63 @@
                               ▓▓▓▓▓▓▓▓                                 ▓▓▓▓▓▓
                                   ▓▓▓                                  ▓▓▓▓▓▓
 {%- endset -%}
+{%- set line_width = 80 -%}
+{%- set RED = '\033[31m' -%}
+{%- set ORANGE = '\033[38;5;208m' -%}
+{%- set YELLOW = '\033[33m' -%}
+{%- set CYAN = '\033[36m' -%}
+{%- set RESET = '\033[0m' -%}
+{%- set GREEN = '\033[32m' -%}
+{%- set _ORANGE_ = '▓' -%}
+{%- set _FULL_ = '█' -%}
+{%- set wantColor = terminal is defined and terminal.supports_color -%}
+{%- set severity_colors = {"Fatal": RED, "Error": ORANGE, "Warning": YELLOW, "Information": CYAN} -%}
+{%- set ns = namespace(seen_commit_shas=[], unique_commit_count=0) -%}
+{%- if wantColor and terminal.is_ci is false -%}
+{%- set colored_art = art | replace(_ORANGE_, ORANGE ~ _FULL_ ~ RESET) -%}
+{{ colored_art | replace(RESET ~ ORANGE, '') }}{{- '\n' -}}
+{%- else -%}
+{%- if terminal.is_ci is false -%}
+{{ art }}{{- '\n' -}}
+{%- endif -%}
+{%- endif -%}
 {{ "*" * line_width }}
 GitSnitch report
 {{ "*" * line_width }}
 {%- for violation in report.violation_banners -%}
 {%- set assertion_alias = violation.assertion_alias %}
-{{ violation.code -}}{{- ' ' -}}
-{% if violation.text and violation.text | trim | length > 0 -%}{{ violation.text | trim }}{%- endif %}
-{% if violation.hint and violation.hint | trim | length > 0 -%}{{ violation.hint | trim }}{%- endif %}
+{%- if wantColor %}
+{{ severity_colors[violation.severity_band] }}{{ violation.code -}}{{ RESET }}
+{%- else %}
+{{ violation.code -}}
+{%- endif -%}
+{{- ' ' }}
+{%- if violation.text and violation.text | trim | length > 0 -%}{{ violation.text | trim }}{{- '\n' -}}{%- endif -%}
+{%- if violation.hint and violation.hint | trim | length > 0 -%}{{ violation.hint | trim }}{{- '\n' -}}{%- endif -%}
 Commits
   {%- for v in report.violations[violation.severity_band] if v.assertion_alias == assertion_alias %}
+  {%- if v.commit_sha not in ns.seen_commit_shas %}
+  {%- set ns.seen_commit_shas = ns.seen_commit_shas + [v.commit_sha] %}
+  {%- set ns.unique_commit_count = ns.unique_commit_count + 1 %}
+  {%- endif %}
   - {{ v.commit_sha_short }}
   {%- endfor %}
 {%- if not loop.last %}{{ '\n' }}{{ " -" * (line_width / 2) }}{% endif -%}
 {%- endfor %}
 {{ "-" * line_width }}
-{% if  report.violation_banners | length > 0 %}
-{%- if terminal is defined and terminal.supports_color -%}
-{%- set colored_art = art | replace(_ORANGE_, ORANGE ~ _FULL_ ~ RESET) -%}
-{{ colored_art | replace(RESET ~ ORANGE, '') }}
+{%- if  report.violation_banners | length < 1 -%}
+{%- if wantColor -%}
+{{ '\n' }}{{ GREEN }}[Success]{{ RESET }} ✔ No violations{{ '\n' }}
 {%- else -%}
-{{ art }}
-{% endif -%}
+{{ '\n' }}[Success] ✔ No violations{{ '\n' }}
 {%- endif -%}
+{%- else %}
+{%- if wantColor %}
+{{ severity_colors.Error }}[!] Violations found{{ RESET }}
+{%- else %}
+[!] Violations found
+{%- endif -%}
+{%- endif %}
+flagged commits: {{ ns.unique_commit_count }}
+validated range: {{ report.git_range }}
+{{ "-" * line_width }}

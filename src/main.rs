@@ -22,9 +22,7 @@ const EXIT_INTERNAL_DEPENDENCY: i32 = 253;
 const EXIT_INTERNAL_IO: i32 = 254;
 const EXIT_INTERNAL_UNEXPECTED: i32 = 255;
 const DEFAULT_ENV_PREFIX: &str = "GITSNITCH_";
-const PLAIN_TEXT_REPORT_TEMPLATE: &str = include_str!("presets_data/report_plain_text.jinja2");
-const DECORATIVE_TEXT_REPORT_TEMPLATE: &str =
-    include_str!("presets_data/report_decorative_text.jinja2");
+const TEXT_REPORT_TEMPLATE: &str = include_str!("templates/report_decorative_text.jinja2");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum RenderOutput {
@@ -48,7 +46,7 @@ struct Args {
     verbose: u8,
 
     /// Select report output format: json, json-compact, text-plain, text-decorative.
-    #[arg(long, value_enum, default_value_t = RenderOutput::Json)]
+    #[arg(long, value_enum, default_value_t = RenderOutput::TextDecorative)]
     output_format: RenderOutput,
 
     /// Override config and force violation severity to be used as process exit code.
@@ -576,6 +574,7 @@ fn run(args: &Args) -> Result<(), AppError> {
         args.output_format,
         &config_custom_meta,
         api_version_str,
+        &lint_scope,
     )?;
 
     let violation_exit_code = resolve_violation_exit_code(
@@ -711,6 +710,7 @@ struct JsonReport<'a> {
     schema_version: &'a str,
     generated_at: String,
     gitsnitch_version: &'a str,
+    git_range: String,
     violation_severity_as_exit_code: bool,
     custom_meta: &'a config::CustomMeta,
     violation_banners: Vec<ViolationBanner>,
@@ -887,12 +887,23 @@ fn build_violations_by_band(
     }
 }
 
+fn generate_range_string(scope: &LintScope) -> String {
+    match scope {
+        LintScope::CommitSha(sha) => format!("{sha}^..{sha}"),
+        LintScope::RefRange {
+            source_ref,
+            target_ref,
+        } => format!("{target_ref}..{source_ref}"),
+    }
+}
+
 fn build_report<'a>(
     collected_violations: &[violations::Violation],
     severity_bands: &config::SeverityBands,
     effective_violation_severity_as_exit_code: bool,
     custom_meta: &'a config::CustomMeta,
     api_version_str: &'a str,
+    scope: &LintScope,
 ) -> Result<JsonReport<'a>, AppError> {
     let entries = build_violation_context_entries(collected_violations, severity_bands);
     let by_band = group_entries_by_band(&entries);
@@ -904,6 +915,7 @@ fn build_report<'a>(
         schema_version: api_version_str,
         generated_at: Utc::now().to_rfc3339(),
         gitsnitch_version: env!("CARGO_PKG_VERSION"),
+        git_range: generate_range_string(scope),
         violation_severity_as_exit_code: effective_violation_severity_as_exit_code,
         custom_meta,
         violation_banners,
@@ -911,53 +923,29 @@ fn build_report<'a>(
     })
 }
 
-fn emit_json_report(
-    collected_violations: &[violations::Violation],
-    severity_bands: &config::SeverityBands,
-    effective_violation_severity_as_exit_code: bool,
+fn serialize_json_report(
+    report: &JsonReport<'_>,
     compact_output: bool,
-    custom_meta: &config::CustomMeta,
-    api_version_str: &str,
-) -> Result<(), AppError> {
-    let report = build_report(
-        collected_violations,
-        severity_bands,
-        effective_violation_severity_as_exit_code,
-        custom_meta,
-        api_version_str,
-    )?;
-
-    let serialized = if compact_output {
-        serde_json::to_string(&report)
+) -> Result<String, AppError> {
+    (if compact_output {
+        serde_json::to_string(report)
     } else {
-        serde_json::to_string_pretty(&report)
-    }
-    .map_err(|error| AppError::Message(format!("failed to serialize report as JSON: {error}")))?;
+        serde_json::to_string_pretty(report)
+    })
+    .map_err(|error| AppError::Message(format!("failed to serialize report as JSON: {error}")))
+}
+
+fn emit_json_report(report: &JsonReport<'_>, compact_output: bool) -> Result<(), AppError> {
+    let serialized = serialize_json_report(report, compact_output)?;
     println!("{serialized}");
 
     Ok(())
 }
 
-fn emit_plain_text_report(
-    collected_violations: &[violations::Violation],
-    severity_bands: &config::SeverityBands,
-    effective_violation_severity_as_exit_code: bool,
-    custom_meta: &config::CustomMeta,
-    api_version_str: &str,
-) -> Result<(), AppError> {
-    emit_text_report_with_template(
-        PLAIN_TEXT_REPORT_TEMPLATE,
-        collected_violations,
-        severity_bands,
-        effective_violation_severity_as_exit_code,
-        custom_meta,
-        api_version_str,
-    )
-}
-
 #[derive(Debug, Serialize)]
 struct TerminalRenderContext {
     supports_color: bool,
+    is_ci: bool,
 }
 
 fn detect_terminal_supports_color() -> bool {
@@ -1001,34 +989,18 @@ fn terminal_supports_color_from_inputs(
     stdout_is_terminal
 }
 
-fn emit_text_report_with_template(
-    template_source: &str,
-    collected_violations: &[violations::Violation],
-    severity_bands: &config::SeverityBands,
-    effective_violation_severity_as_exit_code: bool,
-    custom_meta: &config::CustomMeta,
-    api_version_str: &str,
-) -> Result<(), AppError> {
-    let report = build_report(
-        collected_violations,
-        severity_bands,
-        effective_violation_severity_as_exit_code,
-        custom_meta,
-        api_version_str,
-    )?;
-
-    let report_payload = serde_json::to_value(&report).map_err(|error| {
-        AppError::Message(format!("failed to prepare plain-text report: {error}"))
-    })?;
+fn emit_text_report(supports_color: bool, report: &JsonReport<'_>) -> Result<(), AppError> {
+    let template_source = TEXT_REPORT_TEMPLATE;
 
     let terminal = TerminalRenderContext {
-        supports_color: detect_terminal_supports_color(),
+        supports_color,
+        is_ci: env::var_os("CI").is_some(),
     };
     let environment = Environment::new();
     let rendered = environment
         .render_str(
             template_source,
-            minijinja::context!(report => report_payload, terminal => terminal),
+            minijinja::context!(report => report, terminal => terminal),
         )
         .map_err(|error| {
             AppError::Message(format!("failed to render plain-text report: {error}"))
@@ -1039,23 +1011,6 @@ fn emit_text_report_with_template(
     Ok(())
 }
 
-fn emit_decorative_text_report(
-    collected_violations: &[violations::Violation],
-    severity_bands: &config::SeverityBands,
-    effective_violation_severity_as_exit_code: bool,
-    custom_meta: &config::CustomMeta,
-    api_version_str: &str,
-) -> Result<(), AppError> {
-    emit_text_report_with_template(
-        DECORATIVE_TEXT_REPORT_TEMPLATE,
-        collected_violations,
-        severity_bands,
-        effective_violation_severity_as_exit_code,
-        custom_meta,
-        api_version_str,
-    )
-}
-
 fn emit_report(
     collected_violations: &[violations::Violation],
     severity_bands: &config::SeverityBands,
@@ -1063,38 +1018,22 @@ fn emit_report(
     output_format: RenderOutput,
     custom_meta: &config::CustomMeta,
     api_version_str: &str,
+    scope: &LintScope,
 ) -> Result<(), AppError> {
+    let report = build_report(
+        collected_violations,
+        severity_bands,
+        effective_violation_severity_as_exit_code,
+        custom_meta,
+        api_version_str,
+        scope,
+    )?;
+
     match output_format {
-        RenderOutput::Json => emit_json_report(
-            collected_violations,
-            severity_bands,
-            effective_violation_severity_as_exit_code,
-            false,
-            custom_meta,
-            api_version_str,
-        ),
-        RenderOutput::JsonCompact => emit_json_report(
-            collected_violations,
-            severity_bands,
-            effective_violation_severity_as_exit_code,
-            true,
-            custom_meta,
-            api_version_str,
-        ),
-        RenderOutput::TextPlain => emit_plain_text_report(
-            collected_violations,
-            severity_bands,
-            effective_violation_severity_as_exit_code,
-            custom_meta,
-            api_version_str,
-        ),
-        RenderOutput::TextDecorative => emit_decorative_text_report(
-            collected_violations,
-            severity_bands,
-            effective_violation_severity_as_exit_code,
-            custom_meta,
-            api_version_str,
-        ),
+        RenderOutput::Json => emit_json_report(&report, false),
+        RenderOutput::JsonCompact => emit_json_report(&report, true),
+        RenderOutput::TextPlain => emit_text_report(false, &report),
+        RenderOutput::TextDecorative => emit_text_report(detect_terminal_supports_color(), &report),
     }
 }
 

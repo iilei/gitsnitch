@@ -273,6 +273,8 @@ Decorative terminal text:
 gitsnitch --output-format text-decorative ...
 ```
 
+**Note:** terminal output honors `NO_COLOR` and `CI` to stay automation-friendly.
+For machine-readable output, prefer `json` or `json-compact`.
 </details>
 
 ---

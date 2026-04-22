@@ -282,6 +282,7 @@ fn emit_report_supports_plain_and_decorative_text_variants() {
     let violations = Vec::<crate::violations::Violation>::new();
     let severity_bands = config::SeverityBands::default();
     let custom_meta = config::CustomMeta::new();
+    let scope = super::LintScope::CommitSha("abc1234".to_owned());
 
     let plain = super::emit_report(
         &violations,
@@ -290,6 +291,7 @@ fn emit_report_supports_plain_and_decorative_text_variants() {
         RenderOutput::TextPlain,
         &custom_meta,
         "pre",
+        &scope,
     );
     assert!(plain.is_ok());
 
@@ -300,6 +302,7 @@ fn emit_report_supports_plain_and_decorative_text_variants() {
         RenderOutput::TextDecorative,
         &custom_meta,
         "pre",
+        &scope,
     );
     assert!(decorative.is_ok());
 }
@@ -626,8 +629,11 @@ fn plain_text_report_template_renders_expected_core_fields() {
     });
 
     let rendered = minijinja::Environment::new().render_str(
-        super::PLAIN_TEXT_REPORT_TEMPLATE,
-        minijinja::context!(report => report),
+        super::TEXT_REPORT_TEMPLATE,
+        minijinja::context!(
+            report => report,
+            terminal => serde_json::json!({"supports_color": false, "is_ci": false})
+        ),
     );
     assert!(
         rendered.is_ok(),
@@ -679,10 +685,10 @@ fn decorative_text_report_template_renders_with_terminal_context() {
     });
 
     let rendered = minijinja::Environment::new().render_str(
-        super::DECORATIVE_TEXT_REPORT_TEMPLATE,
+        super::TEXT_REPORT_TEMPLATE,
         minijinja::context!(
             report => report,
-            terminal => serde_json::json!({"supports_color": false})
+            terminal => serde_json::json!({"supports_color": false, "is_ci": false})
         ),
     );
     assert!(
@@ -1144,6 +1150,7 @@ fn emit_report_supports_json_variants() {
     let violations = Vec::<crate::violations::Violation>::new();
     let severity_bands = config::SeverityBands::default();
     let custom_meta = config::CustomMeta::new();
+    let scope = super::LintScope::CommitSha("def5678".to_owned());
 
     let json = super::emit_report(
         &violations,
@@ -1152,6 +1159,7 @@ fn emit_report_supports_json_variants() {
         RenderOutput::Json,
         &custom_meta,
         "pre",
+        &scope,
     );
     assert!(json.is_ok());
 
@@ -1162,6 +1170,7 @@ fn emit_report_supports_json_variants() {
         RenderOutput::JsonCompact,
         &custom_meta,
         "pre",
+        &scope,
     );
     assert!(json_compact.is_ok());
 }
