@@ -58,6 +58,10 @@ jobs:
             --local-user "${{ steps.import_gpg.outputs.keyid }}" \
             "${target_dir}/${binary_name}"
 
+          mv \
+            "${target_dir}/${binary_name}.sig" \
+            "gitsnitch-${{ matrix.platform.target }}.sig"
+
       - name: Release
         uses: houseabsolute/actions-rust-release@v0
         with:
@@ -65,3 +69,9 @@ jobs:
           executable-name: gitsnitch
           target: ${{ matrix.platform.target }}
           action-gh-release-parameters: '{"token":"${{ secrets.GITHUB_TOKEN }}"}'
+
+      - name: Upload detached signature
+        uses: softprops/action-gh-release@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          files: gitsnitch-${{ matrix.platform.target }}.sig
