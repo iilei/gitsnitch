@@ -2,7 +2,10 @@ use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+static TEMP_DIR_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 struct TempDir {
     path: PathBuf,
@@ -14,8 +17,9 @@ impl TempDir {
         let since_epoch = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|error| format!("failed to compute unix timestamp: {error}"))?;
+        let sequence = TEMP_DIR_SEQUENCE.fetch_add(1, Ordering::Relaxed);
         path.push(format!(
-            "{prefix}-{}-{}",
+            "{prefix}-{}-{}-{sequence}",
             std::process::id(),
             since_epoch.as_nanos()
         ));

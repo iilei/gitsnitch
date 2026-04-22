@@ -737,7 +737,7 @@ fn build_violations_by_band(
 
 fn generate_range_string(scope: &LintScope) -> String {
     match scope {
-        LintScope::CommitSha(sha) => sha.clone(),
+        LintScope::CommitSha(sha) => format!("{sha}^..{sha}"),
         LintScope::RefRange {
             source_ref,
             target_ref,
