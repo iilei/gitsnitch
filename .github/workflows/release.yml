@@ -20,6 +20,14 @@ jobs:
           ]
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate changelog
+        uses: orhun/git-cliff-action@v3
+        with:
+          config: cliff.toml
+          args: --output Changes.md
 
       - name: Build
         uses: houseabsolute/actions-rust-cross@v0
