@@ -11,12 +11,23 @@ permissions:
 jobs:
   release:
     strategy:
+      fail-fast: false
       matrix:
         platform:
           - runs-on: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-          - runs-on: macos-latest
+            target: aarch64-unknown-linux-gnu
+          - runs-on: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+          - runs-on: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+          - runs-on: ubuntu-latest
+            target: armv7-unknown-linux-musleabihf
+          - runs-on: macos-13
             target: x86_64-apple-darwin
+          - runs-on: macos-latest
+            target: aarch64-apple-darwin
+          - runs-on: windows-latest
+            target: aarch64-pc-windows-msvc
           - runs-on: windows-latest
             target: x86_64-pc-windows-msvc
     runs-on: ${{ matrix.platform.runs-on }}
@@ -75,3 +86,68 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           files: gitsnitch-${{ matrix.platform.target }}.sig
+
+  release-macos-universal2:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Generate changelog
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: cliff.toml
+          args: --output CHANGELOG.md
+
+      - name: Build x86_64 macOS binary
+        uses: houseabsolute/actions-rust-cross@v1
+        with:
+          target: x86_64-apple-darwin
+          args: "--release"
+
+      - name: Build arm64 macOS binary
+        uses: houseabsolute/actions-rust-cross@v1
+        with:
+          target: aarch64-apple-darwin
+          args: "--release"
+
+      - name: Create universal2 binary
+        shell: bash
+        run: |
+          mkdir -p target/release
+          lipo -create \
+            target/x86_64-apple-darwin/release/gitsnitch \
+            target/aarch64-apple-darwin/release/gitsnitch \
+            -output target/release/gitsnitch
+          chmod 755 target/release/gitsnitch
+
+      - name: Import GPG key
+        id: import_gpg_universal2
+        uses: crazy-max/ghaction-import-gpg@v7
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.GPG_PASSPHRASE }}
+
+      - name: Sign universal2 binary
+        shell: bash
+        run: |
+          gpg --batch --sign --detach-sign \
+            --local-user "${{ steps.import_gpg_universal2.outputs.keyid }}" \
+            target/release/gitsnitch
+
+          mv target/release/gitsnitch.sig gitsnitch-universal2-apple-darwin.sig
+
+      - name: Release universal2 archive
+        uses: houseabsolute/actions-rust-release@v0
+        with:
+          changes-file: CHANGELOG.md
+          executable-name: gitsnitch
+          archive-name: gitsnitch-macOS-universal2
+          action-gh-release-parameters: '{"token":"${{ secrets.GITHUB_TOKEN }}"}'
+
+      - name: Upload detached signature
+        uses: softprops/action-gh-release@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          files: gitsnitch-universal2-apple-darwin.sig

@@ -6,7 +6,9 @@ targets = [
     "aarch64-apple-darwin",
     "x86_64-apple-darwin",
     # Linux (musl = fully static, portable binaries)
+    "aarch64-unknown-linux-gnu",
     "aarch64-unknown-linux-musl",
+    "armv7-unknown-linux-musleabihf",
     "x86_64-unknown-linux-musl",
     # Windows
     "aarch64-pc-windows-msvc",
