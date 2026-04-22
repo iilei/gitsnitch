@@ -10,45 +10,47 @@ permissions:
 
 jobs:
   release:
-    runs-on: ubuntu-latest
     strategy:
       matrix:
-        target:
-          [
-            x86_64-unknown-linux-gnu,
-            x86_64-apple-darwin,
-            x86_64-pc-windows-msvc,
-          ]
+        platform:
+          - runs-on: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - runs-on: macos-latest
+            target: x86_64-apple-darwin
+          - runs-on: windows-latest
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.platform.runs-on }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Generate changelog
-        uses: orhun/git-cliff-action@v3
+        uses: orhun/git-cliff-action@v4
         with:
           config: cliff.toml
-          args: --output Changes.md
+          args: --output CHANGELOG.md
 
       - name: Build
-        uses: houseabsolute/actions-rust-cross@v0
+        uses: houseabsolute/actions-rust-cross@v1
         with:
-          target: ${{ matrix.target }}
+          target: ${{ matrix.platform.target }}
           args: "--release"
 
       - name: Import GPG key
         id: import_gpg
-        uses: crazy-max/ghaction-import-gpg@v6
+        uses: crazy-max/ghaction-import-gpg@v7
         with:
           gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
           passphrase: ${{ secrets.GPG_PASSPHRASE }}
 
       - name: Sign binaries
+        shell: bash
         run: |
-          target_dir="target/${{ matrix.target }}/release"
+          target_dir="target/${{ matrix.platform.target }}/release"
           binary_name="gitsnitch"
 
-          case "${{ matrix.target }}" in
+          case "${{ matrix.platform.target }}" in
             *windows*) binary_name="${binary_name}.exe" ;;
           esac
 
@@ -59,6 +61,7 @@ jobs:
       - name: Release
         uses: houseabsolute/actions-rust-release@v0
         with:
+          changes-file: CHANGELOG.md
           executable-name: gitsnitch
-          target: ${{ matrix.target }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          target: ${{ matrix.platform.target }}
+          action-gh-release-parameters: '{"token":"${{ secrets.GITHUB_TOKEN }}"}'
