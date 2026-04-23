@@ -5,6 +5,8 @@ use std::path::Path;
 use minijinja::Environment;
 use serde::Serialize;
 
+#[cfg(windows)]
+use super::windows_console::enable_vt_processing_stdout;
 use super::{AppError, RenderOutput};
 
 const TEXT_REPORT_TEMPLATE: &str = include_str!("templates/report_decorative_text.jinja2");
@@ -118,6 +120,16 @@ pub(crate) fn emit_report_output<T: Serialize>(
         RenderOutput::Json => emit_json_report(report, false),
         RenderOutput::JsonCompact => emit_json_report(report, true),
         RenderOutput::TextPlain => emit_text_report(false, report),
-        RenderOutput::TextDecorative => emit_text_report(detect_terminal_supports_color(), report),
+        RenderOutput::TextDecorative => {
+            let supports_color = detect_terminal_supports_color();
+            #[cfg(windows)]
+            let supports_color = if supports_color {
+                enable_vt_processing_stdout()
+            } else {
+                false
+            };
+
+            emit_text_report(supports_color, report)
+        }
     }
 }

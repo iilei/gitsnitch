@@ -18,6 +18,8 @@ mod presets;
 pub mod report_output;
 pub mod runtime_inputs;
 mod violations;
+#[cfg(windows)]
+mod windows_console;
 
 use report_output::EmitOptions;
 
