@@ -3,6 +3,10 @@ name = "gitsnitch"
 version = "0.2.0"
 edition = "2024"
 license = "MIT"
+description = "Lints your Git commit history against a declarative ruleset"
+documentation = "https://docs.rs/gitsnitch"
+homepage = "https://github.com/iilei/gitsnitch"
+repository = "https://github.com/iilei/gitsnitch"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
