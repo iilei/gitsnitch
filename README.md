@@ -281,7 +281,9 @@ gitsnitch --output-format text-decorative --gitsnitch-json report.json ...
 
 `--gitsnitch-json` requires a real file path and does not accept `-`.
 
-**Note:** terminal output honors `NO_COLOR` and `CI` to stay automation-friendly.
+**Hint:** `text-decorative` prints ANSI colors only on compatible TTYs.
+On Windows terminals, `ConEmuANSI=ON` can mark compatibility.
+Safety overrides still win: `NO_COLOR`, `TERM=dumb`, non-TTY stdout, and `CLICOLOR=0` disable color.
 For machine-readable output, prefer `json` or `json-compact`.
 </details>
 

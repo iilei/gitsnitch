@@ -26,7 +26,18 @@ pub(crate) fn terminal_supports_color_from_inputs(
     clicolor_force: Option<&str>,
     clicolor: Option<&str>,
     stdout_is_terminal: bool,
+    terminal_is_ansi_compatible: bool,
 ) -> bool {
+    if !stdout_is_terminal {
+        return false;
+    }
+
+    // Fail closed for decorative ANSI output: if compatibility is unclear,
+    // behave as if NO_COLOR were set.
+    if !terminal_is_ansi_compatible {
+        return false;
+    }
+
     if no_color_present {
         return false;
     }
@@ -43,14 +54,59 @@ pub(crate) fn terminal_supports_color_from_inputs(
         return false;
     }
 
-    stdout_is_terminal
+    true
+}
+
+pub(crate) fn terminal_is_ansi_compatible_from_inputs(
+    term: Option<&str>,
+    term_program: Option<&str>,
+    wt_session_present: bool,
+    ansicon_present: bool,
+    conemuansi: Option<&str>,
+) -> bool {
+    if term.is_some_and(|value| value.eq_ignore_ascii_case("dumb")) {
+        return false;
+    }
+
+    if wt_session_present || ansicon_present {
+        return true;
+    }
+
+    if conemuansi.is_some_and(|value| value.eq_ignore_ascii_case("ON")) {
+        return true;
+    }
+
+    if term_program.is_some_and(|value| value.eq_ignore_ascii_case("vscode")) {
+        return true;
+    }
+
+    term.is_some_and(|value| {
+        let value = value.to_ascii_lowercase();
+        [
+            "xterm", "ansi", "vt100", "vt220", "screen", "tmux", "rxvt", "linux", "cygwin", "msys",
+        ]
+        .iter()
+        .any(|needle| value.contains(needle))
+    })
 }
 
 pub(crate) fn detect_terminal_supports_color() -> bool {
     let no_color_present = env::var_os("NO_COLOR").is_some();
     let term = env::var("TERM").ok();
+    let term_program = env::var("TERM_PROGRAM").ok();
     let clicolor_force = env::var("CLICOLOR_FORCE").ok();
     let clicolor = env::var("CLICOLOR").ok();
+    let wt_session_present = env::var_os("WT_SESSION").is_some();
+    let ansicon_present = env::var_os("ANSICON").is_some();
+    let conemuansi = env::var("ConEmuANSI").ok();
+
+    let terminal_is_ansi_compatible = terminal_is_ansi_compatible_from_inputs(
+        term.as_deref(),
+        term_program.as_deref(),
+        wt_session_present,
+        ansicon_present,
+        conemuansi.as_deref(),
+    );
 
     terminal_supports_color_from_inputs(
         no_color_present,
@@ -58,6 +114,7 @@ pub(crate) fn detect_terminal_supports_color() -> bool {
         clicolor_force.as_deref(),
         clicolor.as_deref(),
         io::stdout().is_terminal(),
+        terminal_is_ansi_compatible,
     )
 }
 
@@ -118,6 +175,9 @@ pub(crate) fn emit_report_output<T: Serialize>(
         RenderOutput::Json => emit_json_report(report, false),
         RenderOutput::JsonCompact => emit_json_report(report, true),
         RenderOutput::TextPlain => emit_text_report(false, report),
-        RenderOutput::TextDecorative => emit_text_report(detect_terminal_supports_color(), report),
+        RenderOutput::TextDecorative => {
+            let supports_color = detect_terminal_supports_color();
+            emit_text_report(supports_color, report)
+        }
     }
 }

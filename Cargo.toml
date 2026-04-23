@@ -1,24 +1,30 @@
 [package]
-name = "gitsnitch"
-version = "0.2.2"
-edition = "2024"
-license = "MIT"
 description = "Lints your Git commit history against a declarative ruleset"
 documentation = "https://docs.rs/gitsnitch"
+edition = "2024"
 homepage = "https://github.com/iilei/gitsnitch"
+license = "MIT"
+name = "gitsnitch"
 repository = "https://github.com/iilei/gitsnitch"
+version = "0.3.0"
 
 [dependencies]
-clap = { version = "4", features = ["derive"] }
+chrono = { version = "0.4", features = [
+  "clock",
+] }
+clap = { version = "4", features = [
+  "derive",
+] }
 json5 = "1"
-serde = { version = "1", features = ["derive"] }
+minijinja = "2"
+regex = "1"
+serde = { version = "1", features = [
+  "derive",
+] }
 serde_json = "1"
 serde_yaml = "0.9"
 thiserror = "2"
 toml = "0.8"
-regex = "1"
-minijinja = "2"
-chrono = { version = "0.4", features = ["clock"] }
 
 [lints.rust]
 unsafe_code = "forbid"
@@ -26,55 +32,59 @@ warnings = "deny"
 
 [lints.clippy]
 all = "deny"
-pedantic = "deny"
-nursery = "deny"
-unwrap_used = "deny"
+arithmetic_side_effects = "deny"
+dbg_macro = "deny"
 expect_used = "deny"
+float_arithmetic = "deny"
+indexing_slicing = "deny"
+nursery = "deny"
 panic = "deny"
+pedantic = "deny"
+string_slice = "deny"
 todo = "deny"
 unimplemented = "deny"
-dbg_macro = "deny"
-indexing_slicing = "deny"
-string_slice = "deny"
-arithmetic_side_effects = "deny"
-float_arithmetic = "deny"
+unwrap_used = "deny"
 
-[package.metadata.cargo-machete]
-ignored = ["serde", "thiserror", "toml"]
+  [package.metadata.cargo-machete]
+  ignored = [
+    "serde",
+    "thiserror",
+    "toml",
+  ]
 
-[package.metadata.binstall]
-bin-dir = "{ bin }{ binary-ext }"
-[package.metadata.binstall.overrides."x86_64-unknown-linux-musl"]
-pkg-url = "{ repo }/releases/download/v{ version }/{ name }-Linux-musl-x86_64.tar.gz"
-pkg-fmt = "tgz"
+  [package.metadata.binstall]
+  bin-dir = "{ bin }{ binary-ext }"
+    [package.metadata.binstall.overrides."x86_64-unknown-linux-musl"]
+    pkg-fmt = "tgz"
+    pkg-url = "{ repo }/releases/download/v{ version }/{ name }-Linux-musl-x86_64.tar.gz"
 
-[package.metadata.binstall.overrides."aarch64-unknown-linux-musl"]
-pkg-url = "{ repo }/releases/download/v{ version }/{ name }-Linux-musl-arm64.tar.gz"
-pkg-fmt = "tgz"
+    [package.metadata.binstall.overrides."aarch64-unknown-linux-musl"]
+    pkg-fmt = "tgz"
+    pkg-url = "{ repo }/releases/download/v{ version }/{ name }-Linux-musl-arm64.tar.gz"
 
-[package.metadata.binstall.overrides."armv7-unknown-linux-musleabihf"]
-pkg-url = "{ repo }/releases/download/v{ version }/{ name }-Linux-musleabihf-armv7.tar.gz"
-pkg-fmt = "tgz"
+    [package.metadata.binstall.overrides."armv7-unknown-linux-musleabihf"]
+    pkg-fmt = "tgz"
+    pkg-url = "{ repo }/releases/download/v{ version }/{ name }-Linux-musleabihf-armv7.tar.gz"
 
-[package.metadata.binstall.overrides."x86_64-apple-darwin"]
-pkg-url = "{ repo }/releases/download/v{ version }/{ name }-macOS-x86_64.tar.gz"
-pkg-fmt = "tgz"
+    [package.metadata.binstall.overrides."x86_64-apple-darwin"]
+    pkg-fmt = "tgz"
+    pkg-url = "{ repo }/releases/download/v{ version }/{ name }-macOS-x86_64.tar.gz"
 
-[package.metadata.binstall.overrides."aarch64-apple-darwin"]
-pkg-url = "{ repo }/releases/download/v{ version }/{ name }-macOS-arm64.tar.gz"
-pkg-fmt = "tgz"
+    [package.metadata.binstall.overrides."aarch64-apple-darwin"]
+    pkg-fmt = "tgz"
+    pkg-url = "{ repo }/releases/download/v{ version }/{ name }-macOS-arm64.tar.gz"
 
-[package.metadata.binstall.overrides.'cfg(all(target_os = "macos", target_arch = "universal"))']
-pkg-url = "{ repo }/releases/download/v{ version }/{ name }-macOS-universal2.tar.gz"
-pkg-fmt = "tgz"
+    [package.metadata.binstall.overrides.'cfg(all(target_os = "macos", target_arch = "universal"))']
+    pkg-fmt = "tgz"
+    pkg-url = "{ repo }/releases/download/v{ version }/{ name }-macOS-universal2.tar.gz"
 
-[package.metadata.binstall.overrides."x86_64-pc-windows-msvc"]
-pkg-url = "{ repo }/releases/download/v{ version }/{ name }-Windows-msvc-x86_64.zip"
-pkg-fmt = "zip"
+    [package.metadata.binstall.overrides."x86_64-pc-windows-msvc"]
+    pkg-fmt = "zip"
+    pkg-url = "{ repo }/releases/download/v{ version }/{ name }-Windows-msvc-x86_64.zip"
 
-[package.metadata.binstall.overrides."aarch64-pc-windows-msvc"]
-pkg-url = "{ repo }/releases/download/v{ version }/{ name }-Windows-msvc-arm64.zip"
-pkg-fmt = "zip"
+    [package.metadata.binstall.overrides."aarch64-pc-windows-msvc"]
+    pkg-fmt = "zip"
+    pkg-url = "{ repo }/releases/download/v{ version }/{ name }-Windows-msvc-arm64.zip"
 
 [profile.dev]
 panic = "abort"

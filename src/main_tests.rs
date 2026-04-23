@@ -232,6 +232,7 @@ fn terminal_supports_color_respects_no_color_precedence() {
         Some("1"),
         Some("1"),
         true,
+        true,
     );
     assert!(!value);
 }
@@ -243,6 +244,7 @@ fn terminal_supports_color_disables_for_term_dumb() {
         Some("dumb"),
         None,
         None,
+        true,
         true,
     );
     assert!(!value);
@@ -256,8 +258,9 @@ fn terminal_supports_color_enables_for_clicolor_force() {
         Some("1"),
         Some("0"),
         false,
+        true,
     );
-    assert!(value);
+    assert!(!value);
 }
 
 #[test]
@@ -268,18 +271,84 @@ fn terminal_supports_color_disables_for_clicolor_zero() {
         None,
         Some("0"),
         true,
+        true,
     );
     assert!(!value);
 }
 
 #[test]
 fn terminal_supports_color_falls_back_to_tty_state() {
-    let tty_true =
-        super::report_output::terminal_supports_color_from_inputs(false, None, None, None, true);
-    let tty_false =
-        super::report_output::terminal_supports_color_from_inputs(false, None, None, None, false);
-    assert!(tty_true);
+    let tty_true = super::report_output::terminal_supports_color_from_inputs(
+        false, None, None, None, true, false,
+    );
+    let tty_false = super::report_output::terminal_supports_color_from_inputs(
+        false,
+        Some("xterm"),
+        None,
+        None,
+        false,
+        true,
+    );
+    assert!(!tty_true);
     assert!(!tty_false);
+}
+
+#[test]
+fn terminal_supports_color_requires_ansi_compatible_terminal() {
+    let value = super::report_output::terminal_supports_color_from_inputs(
+        false,
+        Some("xterm-256color"),
+        None,
+        None,
+        true,
+        false,
+    );
+    assert!(!value);
+}
+
+#[test]
+fn terminal_supports_color_enables_when_compatible_and_tty() {
+    let value = super::report_output::terminal_supports_color_from_inputs(
+        false,
+        Some("xterm-256color"),
+        None,
+        None,
+        true,
+        true,
+    );
+    assert!(value);
+}
+
+#[test]
+fn terminal_ansi_compatibility_detects_windows_terminal_signals() {
+    let value = super::report_output::terminal_is_ansi_compatible_from_inputs(
+        None, None, true, false, None,
+    );
+    assert!(value);
+}
+
+#[test]
+fn terminal_ansi_compatibility_rejects_unknown_terminal() {
+    let value = super::report_output::terminal_is_ansi_compatible_from_inputs(
+        Some("unknown-term"),
+        None,
+        false,
+        false,
+        None,
+    );
+    assert!(!value);
+}
+
+#[test]
+fn terminal_ansi_compatibility_rejects_term_dumb() {
+    let value = super::report_output::terminal_is_ansi_compatible_from_inputs(
+        Some("dumb"),
+        Some("vscode"),
+        true,
+        true,
+        Some("ON"),
+    );
+    assert!(!value);
 }
 
 #[test]

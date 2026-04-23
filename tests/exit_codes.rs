@@ -779,7 +779,7 @@ fn decorative_output_omits_ansi_when_no_color_is_set() {
 }
 
 #[test]
-fn decorative_output_emits_ansi_when_clicolor_force_is_enabled() {
+fn decorative_output_omits_ansi_when_stdout_is_not_a_terminal_even_with_clicolor_force() {
     let setup = init_repo_with_single_commit();
     assert!(setup.is_ok());
     let Ok((repo, sha)) = setup else {
@@ -811,7 +811,7 @@ fn decorative_output_emits_ansi_when_clicolor_force_is_enabled() {
     };
 
     assert_eq!(code, 0);
-    assert!(stdout.contains("\u{1b}[38;5;208m"));
+    assert!(!stdout.contains("\u{1b}[38;5;208m"));
 }
 
 #[test]
