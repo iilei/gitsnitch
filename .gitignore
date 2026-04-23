@@ -11,3 +11,5 @@
 .vscode
 lcov.info
 bin
+
+*.sig
