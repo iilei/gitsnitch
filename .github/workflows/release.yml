@@ -14,11 +14,11 @@ jobs:
       fail-fast: false
       matrix:
         platform:
-          - runs-on: ubuntu-latest
+          - runs-on: ubuntu-24.04
             target: x86_64-unknown-linux-musl
-          - runs-on: ubuntu-latest
+          - runs-on: ubuntu-24.04
             target: aarch64-unknown-linux-musl
-          - runs-on: ubuntu-latest
+          - runs-on: ubuntu-24.04
             target: armv7-unknown-linux-musleabihf
           - runs-on: macos-latest
             target: x86_64-apple-darwin
@@ -72,7 +72,7 @@ jobs:
             "gitsnitch-${{ matrix.platform.target }}.sig"
 
       - name: Release
-        uses: houseabsolute/actions-rust-release@v0
+        uses: houseabsolute/actions-rust-release@v0.0.7
         with:
           changes-file: CHANGELOG.md
           executable-name: gitsnitch
@@ -80,7 +80,7 @@ jobs:
           action-gh-release-parameters: '{"token":"${{ secrets.GITHUB_TOKEN }}"}'
 
       - name: Upload detached signature
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           files: gitsnitch-${{ matrix.platform.target }}.sig
@@ -145,7 +145,7 @@ jobs:
           action-gh-release-parameters: '{"token":"${{ secrets.GITHUB_TOKEN }}"}'
 
       - name: Upload detached signature
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           files: gitsnitch-universal2-apple-darwin.sig
