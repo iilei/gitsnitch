@@ -149,3 +149,58 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           files: gitsnitch-universal2-apple-darwin.sig
+
+  notify-homebrew-tap:
+    name: Notify homebrew-tap
+    runs-on: ubuntu-latest
+    needs:
+      - release
+      - release-macos-universal2
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Notify homebrew-tap
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          VERSION="${VERSION#v}"
+
+          fetch_sha() {
+            curl -sL "https://github.com/iilei/gitsnitch/releases/download/v${VERSION}/${1}.sha256" \
+              | awk '{print $1}'
+          }
+
+          SHA_MACOS=$(fetch_sha "gitsnitch-macOS-universal2.tar.gz")
+          SHA_LINUX_X86=$(fetch_sha "gitsnitch-Linux-musl-x86_64.tar.gz")
+          SHA_LINUX_ARM64=$(fetch_sha "gitsnitch-Linux-musl-arm64.tar.gz")
+          SHA_LINUX_ARMV7=$(fetch_sha "gitsnitch-Linux-musleabihf-armv7.tar.gz")
+
+          for value in \
+            "$SHA_MACOS" \
+            "$SHA_LINUX_X86" \
+            "$SHA_LINUX_ARM64" \
+            "$SHA_LINUX_ARMV7"; do
+            if [[ -z "$value" ]]; then
+              echo "Failed to resolve one or more SHA256 values from release sidecar files."
+              exit 1
+            fi
+          done
+
+          curl -fsSL \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${TAP_TOKEN}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            https://api.github.com/repos/iilei/homebrew-tap/dispatches \
+            -d "{
+              \"event_type\": \"formula-update\",
+              \"client_payload\": {
+                \"version\": \"${VERSION}\",
+                \"sha256_macos_universal2\": \"${SHA_MACOS}\",
+                \"sha256_linux_x86_64\": \"${SHA_LINUX_X86}\",
+                \"sha256_linux_arm64\": \"${SHA_LINUX_ARM64}\",
+                \"sha256_linux_armv7\": \"${SHA_LINUX_ARMV7}\"
+              }
+            }"
