@@ -112,6 +112,19 @@ Apply assertion bundles with `--preset` flags (repeatable):
 * `forbid-wip` — block WIP/DO NOT MERGE patterns
 * `security-related-edits-mention` — require explicit mention of security in certain commit types
 
+### Planned rule additions
+
+- [ ] Add title max length rule (target: 72 chars, severity: 70-90)
+- [ ] Add optional title min length rule (target: 8 chars, severity: 30-50)
+- [ ] Add conditional body-required rule for:
+  - [ ] `feat`
+  - [ ] `fix`
+  - [ ] `perf`
+  - [ ] `refactor`
+  - [ ] security-sensitive changes
+- [ ] Add skip conditions for body-required on low-risk commits (`docs`, `chore`, `test`) unless sensitive paths are changed
+
+
 **Examples:**
 
 ```sh
