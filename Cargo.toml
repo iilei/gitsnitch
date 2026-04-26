@@ -6,7 +6,7 @@ homepage = "https://github.com/iilei/gitsnitch"
 license = "MIT"
 name = "gitsnitch"
 repository = "https://github.com/iilei/gitsnitch"
-version = "0.3.2"
+version = "0.3.3"
 
 [dependencies]
 chrono = { version = "0.4", features = [

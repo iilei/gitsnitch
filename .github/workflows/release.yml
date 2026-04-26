@@ -158,27 +158,7 @@ jobs:
       - release-macos-universal2
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 1
-
-      - name: Detect dry-run mode
-        id: dry_run
-        shell: bash
-        run: |
-          git fetch origin master --depth=1 2>/dev/null || true
-          if [[ "$GITHUB_REF" == refs/heads/master ]] || \
-             git merge-base --is-ancestor "$GITHUB_SHA" origin/master 2>/dev/null; then
-            echo "DRY_RUN=false" >> "$GITHUB_ENV"
-            echo "value=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "DRY_RUN=true" >> "$GITHUB_ENV"
-            echo "value=true" >> "$GITHUB_OUTPUT"
-            echo "Commit not reachable from master — dry-run mode."
-          fi
-
       - name: Notify homebrew-tap
-        if: steps.dry_run.outputs.value != 'true'
         env:
           TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           VERSION: ${{ github.ref_name }}
@@ -188,42 +168,61 @@ jobs:
           VERSION="${VERSION#v}"
 
           fetch_sha() {
-            curl -sL "https://github.com/iilei/gitsnitch/releases/download/v${VERSION}/${1}.sha256" \
-              | awk '{print $1}'
+            local name="$1"
+            local attempts="${SHA_RETRY_ATTEMPTS:-5}"
+            local delay_seconds="${SHA_RETRY_DELAY_SECONDS:-8}"
+            local i=1
+            local sha=""
+            local url="https://github.com/iilei/gitsnitch/releases/download/v${VERSION}/${name}.sha256"
+
+            while [[ "$i" -le "$attempts" ]]; do
+              sha="$(curl -fsSL "$url" 2>/dev/null \
+                | tr -d '\r' \
+                | awk 'NR==1 {print $1}' || true)"
+
+              if [[ "$sha" =~ ^[0-9a-fA-F]{64}$ ]]; then
+                printf '%s\n' "$sha"
+                return 0
+              fi
+
+              echo "Attempt ${i}/${attempts} failed for ${name}; retrying in ${delay_seconds}s..."
+              sleep "$delay_seconds"
+              i=$((i + 1))
+            done
+
+            echo "Failed to resolve valid SHA256 from sidecar after ${attempts} attempts: ${name}"
+            return 1
           }
 
-          SHA_MACOS=$(fetch_sha "gitsnitch-macOS-universal2.tar.gz")
-          SHA_LINUX_X86=$(fetch_sha "gitsnitch-Linux-musl-x86_64.tar.gz")
-          SHA_LINUX_ARM64=$(fetch_sha "gitsnitch-Linux-musl-arm64.tar.gz")
-          SHA_LINUX_ARMV7=$(fetch_sha "gitsnitch-Linux-musleabihf-armv7.tar.gz")
+          SHA_MACOS="$(fetch_sha "gitsnitch-macOS-universal2.tar.gz")"
+          SHA_LINUX_X86="$(fetch_sha "gitsnitch-Linux-musl-x86_64.tar.gz")"
+          SHA_LINUX_ARM64="$(fetch_sha "gitsnitch-Linux-musl-arm64.tar.gz")"
+          SHA_LINUX_ARMV7="$(fetch_sha "gitsnitch-Linux-musleabihf-armv7.tar.gz")"
 
-          for value in \
-            "$SHA_MACOS" \
-            "$SHA_LINUX_X86" \
-            "$SHA_LINUX_ARM64" \
-            "$SHA_LINUX_ARMV7"; do
-            if [[ -z "$value" ]]; then
-              echo "Failed to resolve one or more SHA256 values from release sidecar files."
-              exit 1
-            fi
-          done
+          payload="$(jq -n \
+            --arg version "$VERSION" \
+            --arg sha_macos "$SHA_MACOS" \
+            --arg sha_x86 "$SHA_LINUX_X86" \
+            --arg sha_arm64 "$SHA_LINUX_ARM64" \
+            --arg sha_armv7 "$SHA_LINUX_ARMV7" \
+            '{
+              event_type: "formula-update",
+              client_payload: {
+                version: $version,
+                sha256_macos_universal2: $sha_macos,
+                sha256_linux_x86_64: $sha_x86,
+                sha256_linux_arm64: $sha_arm64,
+                sha256_linux_armv7: $sha_armv7
+              }
+            }')"
 
-          curl -fsSL \
+          curl --fail-with-body -sS \
             -X POST \
             -H "Accept: application/vnd.github+json" \
             -H "Authorization: Bearer ${TAP_TOKEN}" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
             https://api.github.com/repos/iilei/homebrew-tap/dispatches \
-            -d "{
-              \"event_type\": \"formula-update\",
-              \"client_payload\": {
-                \"version\": \"${VERSION}\",
-                \"sha256_macos_universal2\": \"${SHA_MACOS}\",
-                \"sha256_linux_x86_64\": \"${SHA_LINUX_X86}\",
-                \"sha256_linux_arm64\": \"${SHA_LINUX_ARM64}\",
-                \"sha256_linux_armv7\": \"${SHA_LINUX_ARMV7}\"
-              }
-            }"
+            -d "$payload"
 
   publish-nuget:
     name: Publish to NuGet / Chocolatey
@@ -287,7 +286,6 @@ jobs:
           args: pack packaging\choco\gitsnitch.nuspec --version ${{ steps.resolve.outputs.version }} --outputdirectory out
 
       - name: Push to NuGet.org
-        if: steps.dry_run.outputs.value != 'true'
         shell: pwsh
         env:
           NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
@@ -299,7 +297,6 @@ jobs:
             --skip-duplicate
 
       - name: Push to Chocolatey Community
-        if: steps.dry_run.outputs.value != 'true'
         continue-on-error: true
         uses: crazy-max/ghaction-chocolatey@v4
         with:

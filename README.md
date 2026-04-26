@@ -2,7 +2,7 @@
 
 # gitsnitch 🗡️🦆
 
-![duck with a knife](gitsnitch_banner.png)
+![duck with a knife](https://cdn.jsdelivr.net/gh/iilei/gitsnitch@master/gitsnitch_banner.png)
 
 **Lints your Git commit history against a declarative ruleset** — locally as a pre-commit/pre-push hook, or in any CI/CD pipeline.
 
