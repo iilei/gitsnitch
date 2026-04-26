@@ -31,11 +31,6 @@ cargo binstall gitsnitch
 choco install iilei.gitsnitch
 ```
 
-Or via `dotnet`:
-
-```sh
-dotnet tool install --global iilei.gitsnitch
-```
 
 ### Verifying release signatures
 
