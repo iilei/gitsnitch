@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
+  <metadata>
+    <id>iilei.gitsnitch</id>
+    <version>$version$</version>
+    <title>gitsnitch</title>
+    <authors>iilei</authors>
+    <copyright>Copyright (c) iilei 2026</copyright>
+    <projectUrl>https://github.com/iilei/gitsnitch</projectUrl>
+    <license type="expression">MIT</license>
+    <icon>images/icon.png</icon>
+    <readme>docs/README.md</readme>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <description>Lints your Git commit history against a declarative ruleset, locally and in CI</description>
+    <tags>git gitlint cicd devtools devx linter hook cli</tags>
+    <repository type="git" url="https://github.com/iilei/gitsnitch" />
+    <releaseNotes>https://github.com/iilei/gitsnitch/releases/tag/v$version$</releaseNotes>
+  </metadata>
+  <files>
+    <file src="docs\README.md" target="docs\README.md" />
+    <file src="images\icon.png" target="images\icon.png" />
+  </files>
+</package>

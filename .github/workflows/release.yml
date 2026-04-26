@@ -280,17 +280,34 @@ jobs:
           $script = $script -replace '{{SHA256_WIN_X64}}', $env:SHA256_WIN_X64
           Set-Content packaging\choco\tools\chocolateyInstall.ps1 $script
 
-      - name: Pack
+      - name: Pack Chocolatey package
         uses: crazy-max/ghaction-chocolatey@v4
         with:
-          args: pack packaging\choco\gitsnitch.nuspec --version ${{ steps.resolve.outputs.version }} --outputdirectory out
+          args: pack packaging\choco\gitsnitch.nuspec --version ${{ steps.resolve.outputs.version }} --outputdirectory out\choco
+
+      - name: Stage NuGet package assets
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path packaging\nuget\docs   | Out-Null
+          New-Item -ItemType Directory -Force -Path packaging\nuget\images | Out-Null
+          Copy-Item README.md         packaging\nuget\docs\README.md
+          Copy-Item gitsnitch_banner.png packaging\nuget\images\icon.png
+
+      - name: Pack NuGet package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path out\nuget | Out-Null
+          nuget pack packaging\nuget\gitsnitch.nuspec `
+            -Version ${{ steps.resolve.outputs.version }} `
+            -OutputDirectory out\nuget `
+            -NoDefaultExcludes
 
       - name: Push to NuGet.org
         shell: pwsh
         env:
           NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
         run: |
-          $pkg = Get-ChildItem out\*.nupkg | Select-Object -First 1
+          $pkg = Get-ChildItem out\nuget\*.nupkg | Select-Object -First 1
           dotnet nuget push $pkg.FullName `
             --api-key $env:NUGET_API_KEY `
             --source https://api.nuget.org/v3/index.json `
@@ -300,4 +317,4 @@ jobs:
         continue-on-error: true
         uses: crazy-max/ghaction-chocolatey@v4
         with:
-          args: push out\iilei.gitsnitch.${{ steps.resolve.outputs.version }}.nupkg --source https://push.chocolatey.org/ --api-key ${{ secrets.CHOCOLATEY_API_KEY }}
+          args: push out\choco\iilei.gitsnitch.${{ steps.resolve.outputs.version }}.nupkg --source https://push.chocolatey.org/ --api-key ${{ secrets.CHOCOLATEY_API_KEY }}
