@@ -1,12 +1,71 @@
 [![codecov](https://codecov.io/gh/iilei/gitsnitch/branch/master/graph/badge.svg?token=TZ71OWC0AZ)](https://codecov.io/gh/iilei/gitsnitch)
 
-# gitsnitch :dagger::goose:
+# gitsnitch 🗡️🦆
 
-![goose with a knife](gitsnitch_banner.png)
+![duck with a knife](gitsnitch_banner.png)
 
 **Lints your Git commit history against a declarative ruleset** — locally as a pre-commit/pre-push hook, or in any CI/CD pipeline.
 
 Think of it as a linter, but for commit hygiene — enforced consistently across every author and every environment.
+
+---
+
+## Installation
+
+### Homebrew (macOS / Linux)
+
+```sh
+brew tap iilei/tap
+brew install --formula iilei/tap/gitsnitch
+```
+
+### cargo-binstall
+
+```sh
+cargo binstall gitsnitch
+```
+
+### NuGet / Chocolatey (Windows)
+
+```powershell
+choco install iilei.gitsnitch
+```
+
+Or via `dotnet`:
+
+```sh
+dotnet tool install --global iilei.gitsnitch
+```
+
+### Verifying release signatures
+
+All release binaries are GPG-signed. The `.sig` file covers the extracted binary, not the archive.
+Archive names use a friendly `OS-arch` scheme; signature names use the Rust target triple.
+
+**macOS / Linux**
+
+```sh
+curl -sSL https://iilei.github.io/pubkey-0F50EA12D4E2AB1D.asc | gpg --import
+
+# example: Linux x86_64
+tar xzf gitsnitch-Linux-musl-x86_64.tar.gz
+gpg --verify gitsnitch-x86_64-unknown-linux-musl.sig gitsnitch
+```
+
+**Windows** (PowerShell, requires [Gpg4win](https://www.gpg4win.org/) or Git for Windows)
+
+```powershell
+Invoke-WebRequest https://iilei.github.io/pubkey-0F50EA12D4E2AB1D.asc -OutFile pubkey.asc
+gpg --import pubkey.asc
+
+# example: Windows x86_64
+Expand-Archive gitsnitch-Windows-msvc-x86_64.zip -DestinationPath .
+gpg --verify gitsnitch-x86_64-pc-windows-msvc.sig gitsnitch.exe
+```
+
+Public key fingerprint: `E298 44DB 66D4 7846 A802  81D6 0F50 EA12 D4E2 AB1D`
+
+([download public key](https://iilei.github.io/pubkey-0F50EA12D4E2AB1D.asc))
 
 ---
 

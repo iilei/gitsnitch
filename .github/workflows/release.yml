@@ -158,7 +158,27 @@ jobs:
       - release-macos-universal2
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Detect dry-run mode
+        id: dry_run
+        shell: bash
+        run: |
+          git fetch origin master --depth=1 2>/dev/null || true
+          if [[ "$GITHUB_REF" == refs/heads/master ]] || \
+             git merge-base --is-ancestor "$GITHUB_SHA" origin/master 2>/dev/null; then
+            echo "DRY_RUN=false" >> "$GITHUB_ENV"
+            echo "value=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "DRY_RUN=true" >> "$GITHUB_ENV"
+            echo "value=true" >> "$GITHUB_OUTPUT"
+            echo "Commit not reachable from master — dry-run mode."
+          fi
+
       - name: Notify homebrew-tap
+        if: steps.dry_run.outputs.value != 'true'
         env:
           TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           VERSION: ${{ github.ref_name }}
@@ -204,3 +224,83 @@ jobs:
                 \"sha256_linux_armv7\": \"${SHA_LINUX_ARMV7}\"
               }
             }"
+
+  publish-nuget:
+    name: Publish to NuGet / Chocolatey
+    runs-on: windows-latest
+    needs:
+      - release
+      - release-macos-universal2
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Detect dry-run mode
+        id: dry_run
+        shell: bash
+        run: |
+          git fetch origin master --depth=1 2>/dev/null || true
+          if [[ "$GITHUB_REF" == refs/heads/master ]] || \
+             git merge-base --is-ancestor "$GITHUB_SHA" origin/master 2>/dev/null; then
+            echo "DRY_RUN=false" >> "$GITHUB_ENV"
+            echo "value=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "DRY_RUN=true" >> "$GITHUB_ENV"
+            echo "value=true" >> "$GITHUB_OUTPUT"
+            echo "Commit not reachable from master — dry-run mode."
+          fi
+
+      - name: Resolve version and SHA256
+        id: resolve
+        shell: bash
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          VERSION="${VERSION#v}"
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+          SHA=$(curl -sL \
+            "https://github.com/iilei/gitsnitch/releases/download/v${VERSION}/gitsnitch-Windows-msvc-x86_64.zip.sha256" \
+            | awk '{print $1}')
+
+          if [[ -z "$SHA" ]]; then
+            echo "Failed to fetch SHA256 for Windows release asset."
+            exit 1
+          fi
+
+          echo "SHA256_WIN_X64=${SHA}" >> "$GITHUB_ENV"
+
+      - name: Stamp install script
+        shell: pwsh
+        run: |
+          $script = Get-Content packaging\choco\tools\chocolateyInstall.ps1 -Raw
+          $script = $script -replace '{{VERSION}}',      $env:VERSION
+          $script = $script -replace '{{SHA256_WIN_X64}}', $env:SHA256_WIN_X64
+          Set-Content packaging\choco\tools\chocolateyInstall.ps1 $script
+
+      - name: Pack
+        uses: crazy-max/ghaction-chocolatey@v4
+        with:
+          args: pack packaging\choco\gitsnitch.nuspec --version ${{ steps.resolve.outputs.version }} --outputdirectory out
+
+      - name: Push to NuGet.org
+        if: steps.dry_run.outputs.value != 'true'
+        shell: pwsh
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          $pkg = Get-ChildItem out\*.nupkg | Select-Object -First 1
+          dotnet nuget push $pkg.FullName `
+            --api-key $env:NUGET_API_KEY `
+            --source https://api.nuget.org/v3/index.json `
+            --skip-duplicate
+
+      - name: Push to Chocolatey Community
+        if: steps.dry_run.outputs.value != 'true'
+        continue-on-error: true
+        uses: crazy-max/ghaction-chocolatey@v4
+        with:
+          args: push out\iilei.gitsnitch.${{ steps.resolve.outputs.version }}.nupkg --source https://push.chocolatey.org/ --api-key ${{ secrets.CHOCOLATEY_API_KEY }}
