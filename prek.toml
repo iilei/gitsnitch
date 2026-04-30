@@ -130,7 +130,7 @@ repo = "local"
 
 [[repos]]
 repo = "."
-rev = "c1dc8304e3e25cb34f1015a8b67dfb9a5cd9bc94"
+rev = "7156dad74e32ca4c982abf67dda68adbbed09744"  # gitsnitch
   [[repos.hooks]]
   args = [
     "--config",
