@@ -80,6 +80,55 @@ With a preset bundle (e.g., enforce conventional commits):
 gitsnitch --preset conventional-commits --commit-sha <sha>
 ```
 
+### Use as a pre-commit hook repo
+
+This repository ships a `.pre-commit-hooks.yaml` manifest with Rust-based hooks.
+`pre-commit` installs it via Cargo in its own cache, and can bootstrap Rust when needed.
+
+Example consumer config for push-range linting:
+
+```yaml
+repos:
+  - repo: https://github.com/iilei/gitsnitch
+    rev: v0.3.3
+    hooks:
+      - id: gitsnitch
+```
+
+The `gitsnitch` hook remaps pre-commit's push refs automatically:
+
+* `PRE_COMMIT_TO_REF` -> `GITSNITCH_SOURCE_REF`
+* `PRE_COMMIT_FROM_REF` -> `GITSNITCH_TARGET_REF`
+
+For commit-message checks, use the staged mode hook that resolves
+`COMMIT_EDITMSG` internally and does not rely on passed filenames:
+
+```yaml
+repos:
+	- repo: https://github.com/iilei/gitsnitch
+		rev: v0.3.3
+		hooks:
+			- id: gitsnitch-commit-msg
+				args: [--config, .gitsnitchrc.toml, --commit-msg-source, auto]
+```
+
+Run it manually:
+
+```sh
+pre-commit run gitsnitch-single-commit --hook-stage manual
+```
+
+Override the commit SHA as needed:
+
+```yaml
+repos:
+	- repo: https://github.com/iilei/gitsnitch
+		rev: v0.3.3
+		hooks:
+			- id: gitsnitch-single-commit
+				args: [--commit-sha, 0123456789abcdef]
+```
+
 ### For CI/CD pipelines
 
 Lint a range of commits in a pull request:

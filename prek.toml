@@ -6,92 +6,142 @@ minimum_pre_commit_version = "3.0.0"
 [[repos]]
 repo = "local"
 
-[[repos.hooks]]
-id = "rust-fmt"
-name = "rust fmt"
-entry = "cargo fmt"
-language = "system"
-pass_filenames = false
-stages = ["pre-commit", "manual"]
+  [[repos.hooks]]
+  entry = "cargo fmt"
+  id = "rust-fmt"
+  language = "system"
+  name = "rust fmt"
+  pass_filenames = false
+  stages = [
+    "manual",
+    "pre-commit",
+  ]
 
-[[repos.hooks]]
-id = "rust-check"
-name = "cargo check"
-entry = "cargo check --all-targets --all-features"
-language = "system"
-pass_filenames = false
-stages = ["pre-commit", "manual"]
+  [[repos.hooks]]
+  entry = "cargo check --all-targets --all-features"
+  id = "rust-check"
+  language = "system"
+  name = "cargo check"
+  pass_filenames = false
+  stages = [
+    "manual",
+    "pre-commit",
+  ]
 
-[[repos.hooks]]
-id = "rust-clippy"
-name = "rust clippy"
-entry = "cargo clippy --all-targets --all-features -- -D warnings"
-language = "system"
-pass_filenames = false
-stages = ["pre-push", "manual"]
+  [[repos.hooks]]
+  entry = "cargo clippy --all-targets --all-features -- -D warnings"
+  id = "rust-clippy"
+  language = "system"
+  name = "rust clippy"
+  pass_filenames = false
+  stages = [
+    "manual",
+    "pre-push",
+  ]
 
-[[repos.hooks]]
-id = "rust-tests"
-name = "rust tests"
-entry = "cargo test --all-features"
-language = "system"
-pass_filenames = false
-stages = ["pre-push", "manual"]
+  [[repos.hooks]]
+  entry = "cargo test --all-features"
+  id = "rust-tests"
+  language = "system"
+  name = "rust tests"
+  pass_filenames = false
+  stages = [
+    "manual",
+    "pre-push",
+  ]
 
-[[repos.hooks]]
-id = "rust-audit"
-name = "cargo audit (security)"
-entry = "cargo audit"
-language = "system"
-pass_filenames = false
-stages = ["pre-push", "manual"]
+  [[repos.hooks]]
+  entry = "cargo audit"
+  id = "rust-audit"
+  language = "system"
+  name = "cargo audit (security)"
+  pass_filenames = false
+  stages = [
+    "manual",
+    "pre-push",
+  ]
 
-[[repos.hooks]]
-id = "rust-deny"
-name = "cargo deny (licenses/bans/advisories)"
-entry = "cargo deny check"
-language = "system"
-pass_filenames = false
-stages = ["pre-push", "manual"]
+  [[repos.hooks]]
+  entry = "cargo deny check"
+  id = "rust-deny"
+  language = "system"
+  name = "cargo deny (licenses/bans/advisories)"
+  pass_filenames = false
+  stages = [
+    "manual",
+    "pre-push",
+  ]
 
-[[repos.hooks]]
-id = "maintenance"
-name = "make maintenance"
-entry = "make maintenance"
-language = "system"
-pass_filenames = false
-stages = ["pre-push", "manual"]
+  [[repos.hooks]]
+  entry = "make maintenance"
+  id = "maintenance"
+  language = "system"
+  name = "make maintenance"
+  pass_filenames = false
+  stages = [
+    "manual",
+    "pre-push",
+  ]
 
-[[repos.hooks]]
-id = "generate-coverage"
-name = "make generate-coverage"
-entry = "make generate-coverage"
-language = "system"
-pass_filenames = false
-stages = ["post-commit", "manual"]
+  [[repos.hooks]]
+  entry = "make generate-coverage"
+  id = "generate-coverage"
+  language = "system"
+  name = "make generate-coverage"
+  pass_filenames = false
+  stages = [
+    "manual",
+    "post-commit",
+  ]
 
-[[repos.hooks]]
-id = "rust-machete"
-name = "cargo machete (unused deps)"
-entry = "cargo machete"
-language = "system"
-pass_filenames = false
-stages = ["manual"]
+  [[repos.hooks]]
+  entry = "cargo machete"
+  id = "rust-machete"
+  language = "system"
+  name = "cargo machete (unused deps)"
+  pass_filenames = false
+  stages = [
+    "manual",
+  ]
 
-[[repos.hooks]]
-id = "json-fmt"
-name = "format JSON files"
-entry = "make fmt-json"
-language = "system"
-files = "docs/api_design/.*\\.json$"
-pass_filenames = false
-stages = ["pre-commit", "manual"]
+  [[repos.hooks]]
+  entry = "make fmt-json"
+  files = "docs/api_design/.*\\.json$"
+  id = "json-fmt"
+  language = "system"
+  name = "format JSON files"
+  pass_filenames = false
+  stages = [
+    "manual",
+    "pre-commit",
+  ]
 
-[[repos.hooks]]
-id = "api-design-svg"
-name = "regenerate API design diagram"
-entry = "make update-api-design-svg"
-language = "system"
-files = "docs/api_design/api_design\\.plantuml$"
-pass_filenames = false
-stages = ["pre-commit", "manual"]
+  [[repos.hooks]]
+  entry = "make update-api-design-svg"
+  files = "docs/api_design/api_design\\.plantuml$"
+  id = "api-design-svg"
+  language = "system"
+  name = "regenerate API design diagram"
+  pass_filenames = false
+  stages = [
+    "manual",
+    "pre-commit",
+  ]
+
+[[repos]]
+repo = "."
+rev = "c1dc8304e3e25cb34f1015a8b67dfb9a5cd9bc94"
+  [[repos.hooks]]
+  args = [
+    "--config",
+    ".gitsnitchrc.toml"
+  ]
+  id = "gitsnitch-commit-msg"
+
+
+  [[repos.hooks]]
+  args = [
+    "--config",
+    ".gitsnitchrc.toml",
+  ]
+  id = "gitsnitch"

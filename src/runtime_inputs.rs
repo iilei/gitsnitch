@@ -1,7 +1,9 @@
 use std::collections::BTreeMap;
 use std::env;
+use std::path::PathBuf;
+use std::process::Command;
 
-use super::{AppError, Args, DEFAULT_ENV_PREFIX, LintScope, REMAP_SUPPORTED_KEYS};
+use super::{AppError, Args, CommitMsgSource, DEFAULT_ENV_PREFIX, LintScope, REMAP_SUPPORTED_KEYS};
 
 fn prefixed_env_non_empty_with_lookup<F>(
     prefix: &str,
@@ -81,6 +83,60 @@ fn remapped_or_prefixed_env_non_empty(
     })
 }
 
+fn resolve_commit_editmsg_path() -> Result<PathBuf, AppError> {
+    let output = Command::new("git")
+        .args(["rev-parse", "--git-path", "COMMIT_EDITMSG"])
+        .output()
+        .map_err(|error| {
+            AppError::Message(format!(
+                "failed to resolve COMMIT_EDITMSG via git rev-parse --git-path: {error}"
+            ))
+        })?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+        let reason = if stderr.is_empty() {
+            "unknown git error".to_owned()
+        } else {
+            stderr
+        };
+        return Err(AppError::Message(format!(
+            "failed to resolve COMMIT_EDITMSG via git rev-parse --git-path: {reason}"
+        )));
+    }
+
+    let raw_path = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    if raw_path.is_empty() {
+        return Err(AppError::Message(
+            "failed to resolve COMMIT_EDITMSG via git rev-parse --git-path: git returned an empty path"
+                .to_owned(),
+        ));
+    }
+
+    let resolved = {
+        let candidate = PathBuf::from(raw_path);
+        if candidate.is_absolute() {
+            candidate
+        } else {
+            let cwd = env::current_dir().map_err(|error| {
+                AppError::Message(format!(
+                    "failed to resolve COMMIT_EDITMSG path relative to current directory: {error}"
+                ))
+            })?;
+            cwd.join(candidate)
+        }
+    };
+
+    if !resolved.is_file() {
+        return Err(AppError::Message(format!(
+            "resolved COMMIT_EDITMSG path '{}' is not a file; run staged commit validation from commit-msg stage or provide --commit-msg-file",
+            resolved.display()
+        )));
+    }
+
+    Ok(resolved)
+}
+
 pub(crate) fn remapped_or_prefixed_env_non_empty_with_lookup<F>(
     prefix: &str,
     key_suffix: &str,
@@ -102,6 +158,9 @@ pub(crate) fn resolve_lint_scope(
     args: &Args,
     remap_env_vars: &BTreeMap<String, String>,
 ) -> Result<LintScope, AppError> {
+    let commit_msg_file = args.commit_msg_file.clone();
+    let staged_requested = args.validate_staged_commit || commit_msg_file.is_some();
+
     let commit_sha = normalize_opt_non_empty(args.commit_sha.clone()).or_else(|| {
         remapped_or_prefixed_env_non_empty(&args.env_prefix, "COMMIT_SHA", remap_env_vars)
     });
@@ -113,6 +172,25 @@ pub(crate) fn resolve_lint_scope(
     let target_ref = normalize_opt_non_empty(args.target_ref.clone()).or_else(|| {
         remapped_or_prefixed_env_non_empty(&args.env_prefix, "TARGET_REF", remap_env_vars)
     });
+
+    let has_other = commit_sha.is_some() || source_ref.is_some() || target_ref.is_some();
+    if staged_requested && has_other {
+        return Err(AppError::Message(
+            "staged commit validation is mutually exclusive with --commit-sha and --source-ref / --target-ref"
+                .to_owned(),
+        ));
+    }
+
+    if staged_requested {
+        let msg_file = if let Some(path) = commit_msg_file {
+            path
+        } else {
+            match args.commit_msg_source.unwrap_or(CommitMsgSource::Auto) {
+                CommitMsgSource::Auto => resolve_commit_editmsg_path()?,
+            }
+        };
+        return Ok(LintScope::StagedCommit { msg_file });
+    }
 
     if commit_sha.is_some() && (source_ref.is_some() || target_ref.is_some()) {
         return Err(AppError::Message(
@@ -131,7 +209,7 @@ pub(crate) fn resolve_lint_scope(
             "ref range scope requires both --source-ref and --target-ref".to_owned(),
         )),
         (None, None, None) => Err(AppError::Message(
-            "no lint scope provided; set either --commit-sha or both --source-ref and --target-ref (or equivalent env vars)"
+            "no lint scope provided; set either --commit-sha, --validate-staged-commit, --commit-msg-file, or both --source-ref and --target-ref (or equivalent env vars)"
                 .to_owned(),
         )),
         _ => Err(AppError::Message("invalid lint scope combination".to_owned())),

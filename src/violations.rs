@@ -339,6 +339,61 @@ fn parse_numstat_totals(numstat: &str) -> Result<(u32, u32), AppError> {
     Ok((total_lines, total_files))
 }
 
+fn load_staged_commit_context(msg_file: &std::path::Path) -> Result<CommitContext, AppError> {
+    let raw_message = std::fs::read_to_string(msg_file).map_err(|error| {
+        AppError::Message(format!(
+            "failed to read commit message file '{}': {error}",
+            msg_file.display()
+        ))
+    })?;
+
+    // Strip comment lines (lines starting with #) that git injects.
+    let raw_message: String = raw_message
+        .lines()
+        .filter(|line| !line.starts_with('#'))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let raw_message = raw_message.trim_end().to_owned();
+
+    let title = raw_message
+        .lines()
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_owned();
+    let body = body_from_raw_message(&raw_message);
+
+    let diff_raw = run_git_capture(&["diff", "--cached", "--no-color"])?;
+    let diff_files_joined = run_git_capture(&["diff", "--cached", "--name-only"])?;
+    let diff_files_joined = diff_files_joined
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n");
+    let diff_lines_joined = collect_diff_lines(&diff_raw);
+
+    let numstat = run_git_capture(&["diff", "--cached", "--numstat"])?;
+    let (line_count, file_count) = parse_numstat_totals(&numstat)?;
+
+    // Best-effort current branch; falls back to detached HEAD label.
+    let branches_joined = run_git_capture(&["rev-parse", "--abbrev-ref", "HEAD"])
+        .map(|out| out.trim().to_owned())
+        .unwrap_or_default();
+
+    Ok(CommitContext {
+        raw_message,
+        title,
+        body,
+        diff_raw,
+        diff_files_joined,
+        diff_lines_joined,
+        line_count,
+        file_count,
+        branches_joined,
+    })
+}
+
 fn load_commit_context(sha: &str) -> Result<CommitContext, AppError> {
     let (title, raw_message) = load_commit_message_fields(sha)?;
     let body = body_from_raw_message(&raw_message);
@@ -473,8 +528,28 @@ pub fn collect_violations(
         });
     }
 
+    if let LintScope::StagedCommit { msg_file } = scope {
+        let context = load_staged_commit_context(msg_file)?;
+        let mut violations = Vec::new();
+        for assertion in assertions {
+            if assertion_violated(assertion, &context)? {
+                violations.push(Violation {
+                    commit_sha: "staged".to_owned(),
+                    commit_title: context.title.clone(),
+                    assertion_alias: assertion.alias.clone(),
+                    assertion_description: assertion.description.clone(),
+                    severity: assertion.severity,
+                    banner: assertion.banner.clone(),
+                    hint: assertion.hint.clone(),
+                });
+            }
+        }
+        return Ok(LintResult { violations });
+    }
+
     let commits_to_check = match scope {
         LintScope::CommitSha(sha) => vec![sha.clone()],
+        LintScope::StagedCommit { .. } => unreachable!("handled above"),
         LintScope::RefRange {
             source_ref,
             target_ref,

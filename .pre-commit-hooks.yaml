@@ -1,0 +1,29 @@
+- id: gitsnitch
+  name: gitsnitch (pre-push)
+  description: Lint the commit range being pushed.
+  entry: gitsnitch --violation-severity-as-exit-code --remap-env-var GITSNITCH_SOURCE_REF=PRE_COMMIT_TO_REF --remap-env-var GITSNITCH_TARGET_REF=PRE_COMMIT_FROM_REF
+  language: rust
+  pass_filenames: false
+  always_run: true
+  stages: [pre-push]
+  minimum_pre_commit_version: 4.0.0
+
+- id: gitsnitch-commit-msg
+  name: gitsnitch (commit-msg)
+  description: Lint the staged commit message and index diff at commit time.
+  entry: gitsnitch --violation-severity-as-exit-code --validate-staged-commit --commit-msg-source auto
+  language: rust
+  pass_filenames: false
+  always_run: true
+  stages: [commit-msg]
+  minimum_pre_commit_version: 4.0.0
+
+- id: gitsnitch-single-commit
+  name: gitsnitch (single commit)
+  description: Lint a single commit; provide --commit-sha via args (manual stage).
+  entry: gitsnitch --violation-severity-as-exit-code
+  language: rust
+  pass_filenames: false
+  always_run: true
+  stages: [manual]
+  minimum_pre_commit_version: 4.0.0

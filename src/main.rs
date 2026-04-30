@@ -38,6 +38,11 @@ pub enum RenderOutput {
     TextDecorative,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum CommitMsgSource {
+    Auto,
+}
+
 #[derive(Debug, Parser)]
 #[command(name = "gitsnitch")]
 #[command(version)]
@@ -84,6 +89,27 @@ struct Args {
     /// Commit SHA to lint
     #[arg(long)]
     commit_sha: Option<String>,
+
+    /// Validate the staged commit (staged diff + commit message).
+    ///
+    /// This mode is mutually exclusive with --commit-sha and
+    /// --source-ref / --target-ref.
+    #[arg(long)]
+    validate_staged_commit: bool,
+
+    /// Path to a commit message file to lint (passed by git for commit-msg hooks).
+    ///
+    /// When set, diff and branch context are read from the current index.
+    /// Mutually exclusive with --commit-sha and --source-ref / --target-ref.
+    #[arg(long)]
+    commit_msg_file: Option<PathBuf>,
+
+    /// Commit message source for staged commit validation.
+    ///
+    /// `auto` resolves `COMMIT_EDITMSG` via git. This option currently
+    /// supports only `auto` and is kept explicit for invocation clarity.
+    #[arg(long, value_enum)]
+    commit_msg_source: Option<CommitMsgSource>,
 
     /// Source ref to lint against target ref.
     ///
@@ -144,6 +170,9 @@ enum ConfigSource {
 #[derive(Debug)]
 pub(crate) enum LintScope {
     CommitSha(String),
+    StagedCommit {
+        msg_file: PathBuf,
+    },
     RefRange {
         source_ref: String,
         target_ref: String,
@@ -304,6 +333,9 @@ fn log_lint_scope(lint_scope: &LintScope, verbose: u8) {
         LintScope::CommitSha(sha) => {
             eprintln!("lint scope: commit_sha={sha}");
         }
+        LintScope::StagedCommit { msg_file } => {
+            eprintln!("lint scope: commit_msg_file={}", msg_file.display());
+        }
         LintScope::RefRange {
             source_ref,
             target_ref,
@@ -363,6 +395,8 @@ fn run(args: &Args) -> Result<(), AppError> {
     cli::validate_custom_meta(&args.custom_meta)?;
     cli::validate_env_resolution_mode(args)?;
     cli::validate_gitsnitch_json_path(args)?;
+    cli::validate_staged_commit_mode(args)?;
+    cli::validate_commit_msg_file_path(args)?;
     presets::validate_cli_preset_names(&args.preset)?;
 
     let remap_env_vars = runtime_inputs::parse_remap_env_vars(&args.remap_env_var)?;
@@ -738,6 +772,7 @@ fn build_violations_by_band(
 fn generate_range_string(scope: &LintScope) -> String {
     match scope {
         LintScope::CommitSha(sha) => format!("{sha}^..{sha}"),
+        LintScope::StagedCommit { .. } => "staged:index".to_owned(),
         LintScope::RefRange {
             source_ref,
             target_ref,

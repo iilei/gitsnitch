@@ -23,6 +23,9 @@ fn test_args() -> Args {
         custom_meta: vec![],
         preset: vec![],
         commit_sha: None,
+        validate_staged_commit: false,
+        commit_msg_file: None,
+        commit_msg_source: None,
         source_ref: None,
         target_ref: None,
         default_branch: None,
@@ -225,6 +228,134 @@ fn resolve_lint_scope_rejects_missing_scope() {
 }
 
 #[test]
+fn resolve_lint_scope_uses_commit_msg_file_when_provided() {
+    let tmp = std::env::temp_dir().join("gitsnitch-test-msg.txt");
+    fs::write(&tmp, "feat: test commit\n\nbody text\n").ok();
+
+    let mut args = test_args();
+    args.commit_msg_file = Some(tmp.clone());
+    let remap = BTreeMap::new();
+
+    let scope = super::runtime_inputs::resolve_lint_scope(&args, &remap);
+    assert!(scope.is_ok());
+    assert!(matches!(scope, Ok(super::LintScope::StagedCommit { .. })));
+
+    fs::remove_file(&tmp).ok();
+}
+
+#[test]
+fn resolve_lint_scope_rejects_commit_msg_file_combined_with_commit_sha() {
+    let tmp = std::env::temp_dir().join("gitsnitch-test-msg2.txt");
+    fs::write(&tmp, "feat: test\n").ok();
+
+    let mut args = test_args();
+    args.commit_msg_file = Some(tmp.clone());
+    args.commit_sha = Some("abc123".to_owned());
+    let remap = BTreeMap::new();
+
+    let result = super::runtime_inputs::resolve_lint_scope(&args, &remap);
+    assert!(result.is_err());
+
+    let message = match result {
+        Err(AppError::Message(message)) => message,
+        Ok(_) | Err(_) => String::new(),
+    };
+    assert!(message.contains("mutually exclusive"));
+
+    fs::remove_file(&tmp).ok();
+}
+
+#[test]
+fn resolve_lint_scope_uses_validate_staged_commit_with_explicit_commit_msg_file() {
+    let tmp = std::env::temp_dir().join("gitsnitch-test-msg-staged.txt");
+    fs::write(&tmp, "feat: staged mode\n").ok();
+
+    let mut args = test_args();
+    args.validate_staged_commit = true;
+    args.commit_msg_file = Some(tmp.clone());
+    let remap = BTreeMap::new();
+
+    let scope = super::runtime_inputs::resolve_lint_scope(&args, &remap);
+    assert!(scope.is_ok());
+    assert!(matches!(scope, Ok(super::LintScope::StagedCommit { .. })));
+
+    fs::remove_file(&tmp).ok();
+}
+
+#[test]
+fn resolve_lint_scope_rejects_validate_staged_commit_combined_with_ref_range() {
+    let mut args = test_args();
+    args.validate_staged_commit = true;
+    args.source_ref = Some("feature".to_owned());
+    args.target_ref = Some("main".to_owned());
+    let remap = BTreeMap::new();
+
+    let result = super::runtime_inputs::resolve_lint_scope(&args, &remap);
+    assert!(result.is_err());
+
+    let message = match result {
+        Err(AppError::Message(message)) => message,
+        Ok(_) | Err(_) => String::new(),
+    };
+    assert!(message.contains("mutually exclusive"));
+}
+
+#[test]
+fn validate_staged_commit_mode_rejects_commit_msg_source_without_staged_mode() {
+    let mut args = test_args();
+    args.commit_msg_source = Some(super::CommitMsgSource::Auto);
+
+    let result = super::cli::validate_staged_commit_mode(&args);
+    assert!(result.is_err());
+
+    let message = match result {
+        Err(AppError::Message(message)) => message,
+        Ok(()) | Err(_) => String::new(),
+    };
+    assert!(message.contains("--commit-msg-source requires"));
+}
+
+#[test]
+fn validate_staged_commit_mode_accepts_commit_msg_source_with_staged_mode() {
+    let mut args = test_args();
+    args.validate_staged_commit = true;
+    args.commit_msg_source = Some(super::CommitMsgSource::Auto);
+
+    let result = super::cli::validate_staged_commit_mode(&args);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn validate_commit_msg_file_path_rejects_dash() {
+    let mut args = test_args();
+    args.commit_msg_file = Some(PathBuf::from("-"));
+
+    let result = super::cli::validate_commit_msg_file_path(&args);
+    assert!(result.is_err());
+
+    let message = match result {
+        Err(AppError::Message(message)) => message,
+        Ok(()) | Err(_) => String::new(),
+    };
+    assert!(message.contains("does not accept '-'"));
+}
+
+#[test]
+fn validate_commit_msg_file_path_rejects_nonexistent_path() {
+    let mut args = test_args();
+    args.commit_msg_file = Some(PathBuf::from("/nonexistent/path/msg.txt"));
+
+    let result = super::cli::validate_commit_msg_file_path(&args);
+    assert!(result.is_err());
+
+    let message = match result {
+        Err(AppError::Message(message)) => message,
+        Ok(()) | Err(_) => String::new(),
+    };
+    assert!(message.contains("does not exist"));
+}
+
+#[test]
 fn terminal_supports_color_respects_no_color_precedence() {
     let value = super::report_output::terminal_supports_color_from_inputs(
         true,
@@ -380,6 +511,21 @@ fn args_parser_accepts_gitsnitch_json_path() {
     let args = parsed.unwrap_or_else(|_| test_args());
     let path = args.gitsnitch_json.as_deref();
     assert_eq!(path, Some(std::path::Path::new("report.json")));
+}
+
+#[test]
+fn args_parser_accepts_validate_staged_commit_with_commit_msg_source_auto() {
+    let parsed = Args::try_parse_from([
+        "gitsnitch",
+        "--validate-staged-commit",
+        "--commit-msg-source",
+        "auto",
+    ]);
+    assert!(parsed.is_ok());
+
+    let args = parsed.unwrap_or_else(|_| test_args());
+    assert!(args.validate_staged_commit);
+    assert_eq!(args.commit_msg_source, Some(super::CommitMsgSource::Auto));
 }
 
 #[test]

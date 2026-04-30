@@ -1,0 +1,15 @@
+api_version = "pre"
+[[assertions]]
+alias = "preset_conventional_title"
+banner = "Use Conventional Commits title format: <type>(scope?): subject"
+description = "Require a Conventional Commits style title"
+hint = "Example: feat(parser): add preset selection"
+severity = 80
+
+  [assertions.must_satisfy]
+    [assertions.must_satisfy.condition]
+    mode = "title"
+    patterns = [
+      "^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\\([a-z0-9._/-]+\\))?!?: .+",
+    ]
+    type = "msg_match_any"

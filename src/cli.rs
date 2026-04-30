@@ -50,3 +50,36 @@ pub(crate) fn validate_gitsnitch_json_path(args: &Args) -> Result<(), AppError> 
 
     Ok(())
 }
+
+pub(crate) fn validate_staged_commit_mode(args: &Args) -> Result<(), AppError> {
+    let staged_requested = args.validate_staged_commit || args.commit_msg_file.is_some();
+
+    if args.commit_msg_source.is_some() && !staged_requested {
+        return Err(AppError::Message(
+            "--commit-msg-source requires --validate-staged-commit or --commit-msg-file".to_owned(),
+        ));
+    }
+
+    Ok(())
+}
+
+pub(crate) fn validate_commit_msg_file_path(args: &Args) -> Result<(), AppError> {
+    let Some(path) = &args.commit_msg_file else {
+        return Ok(());
+    };
+
+    if path.as_os_str() == OsStr::new("-") {
+        return Err(AppError::Message(
+            "--commit-msg-file does not accept '-' ; provide a real file path".to_owned(),
+        ));
+    }
+
+    if !path.exists() {
+        return Err(AppError::Message(format!(
+            "--commit-msg-file '{}' does not exist",
+            path.display()
+        )));
+    }
+
+    Ok(())
+}
