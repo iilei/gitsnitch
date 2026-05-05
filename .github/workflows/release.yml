@@ -166,6 +166,7 @@ jobs:
           set -euo pipefail
 
           VERSION="${VERSION#v}"
+          REPOSITORY="${GITHUB_REPOSITORY#*/}"
 
           fetch_sha() {
             local name="$1"
@@ -173,7 +174,7 @@ jobs:
             local delay_seconds="${SHA_RETRY_DELAY_SECONDS:-8}"
             local i=1
             local sha=""
-            local url="https://github.com/iilei/gitsnitch/releases/download/v${VERSION}/${name}.sha256"
+            local url="https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VERSION}/${name}.sha256"
 
             while [[ "$i" -le "$attempts" ]]; do
               sha="$(curl -fsSL "$url" 2>/dev/null \
@@ -205,9 +206,11 @@ jobs:
             --arg sha_x86 "$SHA_LINUX_X86" \
             --arg sha_arm64 "$SHA_LINUX_ARM64" \
             --arg sha_armv7 "$SHA_LINUX_ARMV7" \
+            --arg repository "$REPOSITORY" \
             '{
               event_type: "formula-update",
               client_payload: {
+                repository: $repository,
                 version: $version,
                 sha256_macos_universal2: $sha_macos,
                 sha256_linux_x86_64: $sha_x86,
