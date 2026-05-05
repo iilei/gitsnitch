@@ -7,7 +7,10 @@
     <authors>iilei</authors>
     <copyright>Copyright (c) iilei 2026</copyright>
     <projectUrl>https://github.com/iilei/gitsnitch</projectUrl>
+    <projectSourceUrl>https://github.com/iilei/gitsnitch</projectSourceUrl>
     <packageSourceUrl>https://github.com/iilei/gitsnitch</packageSourceUrl>
+    <docsUrl>https://github.com/iilei/gitsnitch#readme</docsUrl>
+    <bugTrackerUrl>https://github.com/iilei/gitsnitch/issues</bugTrackerUrl>
     <licenseUrl>https://opensource.org/licenses/MIT</licenseUrl>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
     <iconUrl>https://raw.githubusercontent.com/iilei/gitsnitch/master/gitsnitch_banner.png</iconUrl>
