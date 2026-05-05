@@ -11,7 +11,10 @@
     <licenseUrl>https://opensource.org/licenses/MIT</licenseUrl>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
     <iconUrl>https://raw.githubusercontent.com/iilei/gitsnitch/master/gitsnitch_banner.png</iconUrl>
-    <description>Lints your Git commit history against a declarative ruleset, locally and in CI</description>
+    <summary>A CLI tool that lints your Git commit history against a declarative ruleset, locally and in CI.</summary>
+    <description>gitsnitch lints your Git commit history against a declarative ruleset — locally and in CI pipelines.
+
+Define rules as TOML presets (built-in or custom) to enforce commit message conventions, flag WIP commits, require security-related mentions, and more. Seamlessly integrates with pre-commit and prek.</description>
     <tags>git gitlint cicd devtools devx linter hook cli</tags>
     <releaseNotes>https://github.com/iilei/gitsnitch/releases/tag/v$version$</releaseNotes>
   </metadata>
