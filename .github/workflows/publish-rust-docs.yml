@@ -30,6 +30,9 @@ jobs:
       - name: Add .nojekyll
         run: touch target/doc/.nojekyll
 
+      - name: Add root redirect
+        run: echo '<meta http-equiv="refresh" content="0; url=gitsnitch/index.html">' > target/doc/index.html
+
       - name: Configure Pages
         uses: actions/configure-pages@v6
 
