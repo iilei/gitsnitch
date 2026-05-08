@@ -1440,3 +1440,52 @@ fn emit_report_supports_json_variants() {
     );
     assert!(json_compact.is_ok());
 }
+
+#[test]
+fn build_report_violation_severity_max_encountered_is_zero_when_no_violations() {
+    let violations = Vec::<crate::violations::Violation>::new();
+    let bands = config::SeverityBands::default();
+    let custom_meta = config::CustomMeta::new();
+    let scope = super::LintScope::CommitSha("abc1234".to_owned());
+
+    let result = super::build_report(&violations, &bands, false, &custom_meta, "pre", &scope);
+    assert!(result.is_ok());
+    let Ok(report) = result else {
+        return;
+    };
+    assert_eq!(report.violation_severity_max_encountered, 0);
+}
+
+#[test]
+fn build_report_violation_severity_max_encountered_returns_highest_when_multiple_severities() {
+    let violations = vec![
+        crate::violations::Violation {
+            commit_sha: "1234567890abcdef".to_owned(),
+            commit_title: "wip".to_owned(),
+            assertion_alias: "preset_conventional_title".to_owned(),
+            assertion_description: "Require a Conventional Commits style title".to_owned(),
+            severity: 80,
+            banner: String::new(),
+            hint: String::new(),
+        },
+        crate::violations::Violation {
+            commit_sha: "1234567890abcdef".to_owned(),
+            commit_title: "wip".to_owned(),
+            assertion_alias: "preset_forbid_wip".to_owned(),
+            assertion_description: "Disallow work-in-progress commit titles".to_owned(),
+            severity: 60,
+            banner: String::new(),
+            hint: String::new(),
+        },
+    ];
+    let bands = config::SeverityBands::default();
+    let custom_meta = config::CustomMeta::new();
+    let scope = super::LintScope::CommitSha("1234567890abcdef".to_owned());
+
+    let result = super::build_report(&violations, &bands, false, &custom_meta, "pre", &scope);
+    assert!(result.is_ok());
+    let Ok(report) = result else {
+        return;
+    };
+    assert_eq!(report.violation_severity_max_encountered, 80);
+}

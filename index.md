@@ -44,6 +44,18 @@ Three hooks are available:
 
 Requires **pre-commit ≥ 4.0.0**. The hooks are implemented in Rust (`language: rust`) and compiled once on first use — no separate install needed.
 
+### Inspecting the highest severity encountered
+
+Every JSON report includes `violation_severity_max_encountered` — the highest severity value seen across all violations, or `0` when none are found. Useful for threshold checks in scripts:
+
+```bash
+gitsnitch \
+  --preset forbid-wip --preset conventional-commits \
+  --target-ref HEAD^^^ --source-ref HEAD \
+  --output-format json \
+  | jq '.violation_severity_max_encountered'
+```
+
 ---
 
 If you prefer to install the binary directly, see the options below.
