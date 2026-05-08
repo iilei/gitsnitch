@@ -1,4 +1,8 @@
 /target/
+/_site/
+.jekyll-cache/
+.jekyll-metadata
+.sass-cache/
 
 # cargo fix backups
 **/*.rs.bk
