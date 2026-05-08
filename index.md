@@ -5,6 +5,7 @@ title: GitSnitch
 
 [![codecov](https://codecov.io/gh/iilei/gitsnitch/branch/master/graph/badge.svg?token=TZ71OWC0AZ)](https://codecov.io/gh/iilei/gitsnitch)
 [![GitHub](https://img.shields.io/badge/GitHub-iilei%2Fgitsnitch-blue?logo=github)](https://github.com/iilei/gitsnitch)
+[![GitHub Stars](https://img.shields.io/github/stars/iilei/gitsnitch?style=social)](https://github.com/iilei/gitsnitch/stargazers)
 
 # gitsnitch 🗡️🦆
 
@@ -26,7 +27,7 @@ gitsnitch ships with [pre-commit](https://pre-commit.com) hooks out of the box. 
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/iilei/gitsnitch
-    rev: v0.3.3  # pin to a tag or SHA in production
+    rev: v0.3.4  # pin to a tag or SHA in production
     args:
       - --preset
       - conventional-commits
@@ -39,7 +40,7 @@ Three hooks are available:
 | Hook id | Stage | Purpose |
 | --- | --- | --- |
 | `gitsnitch` | `pre-push` | Lints the full commit range being pushed |
-| `gitsnitch-commit-msg` | `commit-msg` | Lints the staged commit message and index diff at commit time |
+| `gitsnitch-commit-msg` | `commit-msg`&nbsp;&nbsp; | Lints the staged commit message and index diff at commit time |
 | `gitsnitch-single-commit`&nbsp;&nbsp; | `manual` | Lints a single commit; supply `--commit-sha` via `args` |
 
 Requires **pre-commit ≥ 4.0.0**. The hooks are implemented in Rust (`language: rust`) and compiled once on first use — no separate install needed.
