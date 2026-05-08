@@ -1,0 +1,6 @@
+title: GitSnitch
+description: Git operationalization quality assertion framework
+markdown: kramdown
+kramdown:
+  input: GFM
+permalink: pretty

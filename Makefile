@@ -17,7 +17,7 @@ endif
 BIN_DIR := bin
 BIN_PATH := $(BIN_DIR)/$(BIN_NAME)$(EXE_EXT)
 
-.PHONY: help local build test clippy fmt check quality clean install-tools validate-examples update-api-design-svg update-api-schema-md fmt-json docs maintenance generate-coverage
+.PHONY: help local build test clippy fmt check quality clean install-tools validate-examples update-api-design-svg update-api-schema-md fmt-json docs maintenance generate-coverage site-serve
 
 help:
 	@echo "Targets:"
@@ -36,7 +36,8 @@ help:
 	@echo "  validate-examples - validate API example JSON against schema"
 	@echo "  update-api-design-svg - regenerate docs/api_design/api_design.svg from PlantUML"
 	@echo "  update-api-schema-md - generate Markdown documentation from JSON schema"
-	@echo "  fmt-json - prettify JSON files (schema and example)"
+	@echo "  fmt-json  - prettify JSON files (schema and example)"
+	@echo "  site-serve - serve the Jekyll site locally on http://localhost:4000"
 
 local: fmt clippy test build
 
@@ -92,3 +93,10 @@ fmt-json:
 	$(JQ) --indent 2 . docs/api_design/api_v1.schema.json > /tmp/schema.tmp && mv /tmp/schema.tmp docs/api_design/api_v1.schema.json
 	$(JQ) --indent 2 . docs/api_design/api_v1.example.json > /tmp/example.tmp && mv /tmp/example.tmp docs/api_design/api_v1.example.json
 	@echo "JSON files formatted"
+
+site-serve:
+	docker run --rm -it \
+	  -p 4000:4000 \
+	  -v "$$PWD":/srv/jekyll \
+	  jekyll/jekyll:pages \
+	  sh -c "gem install webrick -N && jekyll serve --host 0.0.0.0 --watch --force_polling"
