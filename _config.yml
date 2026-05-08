@@ -1,6 +1,7 @@
 title: GitSnitch
 description: Git operationalization quality assertion framework
 markdown: kramdown
+highlighter: rouge
 kramdown:
   input: GFM
 permalink: pretty

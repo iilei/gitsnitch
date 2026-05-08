@@ -30,5 +30,12 @@
                 <p>Built with Jekyll. Powered by policy signals.</p>
             </div>
         </footer>
+        <script>
+            document.addEventListener("keydown", function (e) {
+                if (e.key === "Escape" && location.hash) {
+                    history.replaceState(null, "", location.pathname + location.search);
+                }
+            });
+        </script>
     </body>
 </html>
