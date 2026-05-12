@@ -17,6 +17,20 @@ Think of it as a linter, but for commit hygiene - enforced consistently across e
 
 Source and issue tracker: [github.com/iilei/gitsnitch](https://github.com/iilei/gitsnitch)
 
+## gitsnitch vs gitlint
+
+| Dimension | gitsnitch | gitlint |
+| --- | --- | --- |
+| Automatic incremental unshallowing of shallow clones | 🟢 Yes | 🔴 No |
+| Machine-readable output | 🟢 Yes | 🔴 No |
+| Severity signal survives pre-commit context | 🟢 Yes, via JSON field `.max_violation_severity` | 🔴 No |
+| Custom assertions | 🟢 Yes | 🟡 Via Python rule file path |
+| Team-owned assertion config | 🟢 DRY; config passed via stdin or relative paths | 🟡 More complex |
+| Assertions using files_changed context | 🟢 Yes | 🔴 No |
+| Assertions using `diff_match`* context | 🟢 Yes, via `diff_match_any` / `diff_match_none` | 🔴 No |
+
+*`diff_match_any` and `diff_match_none` let teams require or skip assertions based on which paths and lines changed in each commit diff.
+
 ---
 
 ## Quick start with pre-commit
@@ -47,14 +61,14 @@ Requires **pre-commit ≥ 4.0.0**. The hooks are implemented in Rust (`language:
 
 ### Inspecting the highest severity encountered
 
-Every JSON report includes `violation_severity_max_encountered` — the highest severity value seen across all violations, or `0` when none are found. Useful for threshold checks in scripts:
+Every JSON report includes `max_violation_severity` — the highest severity value seen across all violations, or `0` when none are found. Useful for threshold checks in scripts:
 
 ```bash
 gitsnitch \
   --preset forbid-wip --preset conventional-commits \
   --target-ref HEAD^^^ --source-ref HEAD \
   --output-format json \
-  | jq '.violation_severity_max_encountered'
+  | jq '.max_violation_severity'
 ```
 
 ---

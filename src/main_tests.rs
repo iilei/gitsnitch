@@ -1442,7 +1442,7 @@ fn emit_report_supports_json_variants() {
 }
 
 #[test]
-fn build_report_violation_severity_max_encountered_is_zero_when_no_violations() {
+fn build_report_max_violation_severity_is_zero_when_no_violations() {
     let violations = Vec::<crate::violations::Violation>::new();
     let bands = config::SeverityBands::default();
     let custom_meta = config::CustomMeta::new();
@@ -1453,11 +1453,11 @@ fn build_report_violation_severity_max_encountered_is_zero_when_no_violations() 
     let Ok(report) = result else {
         return;
     };
-    assert_eq!(report.violation_severity_max_encountered, 0);
+    assert_eq!(report.max_violation_severity, 0);
 }
 
 #[test]
-fn build_report_violation_severity_max_encountered_returns_highest_when_multiple_severities() {
+fn build_report_max_violation_severity_returns_highest_when_multiple_severities() {
     let violations = vec![
         crate::violations::Violation {
             commit_sha: "1234567890abcdef".to_owned(),
@@ -1487,5 +1487,5 @@ fn build_report_violation_severity_max_encountered_returns_highest_when_multiple
     let Ok(report) = result else {
         return;
     };
-    assert_eq!(report.violation_severity_max_encountered, 80);
+    assert_eq!(report.max_violation_severity, 80);
 }

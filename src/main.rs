@@ -594,7 +594,7 @@ struct JsonReport<'a> {
     gitsnitch_version: &'a str,
     git_range: String,
     violation_severity_as_exit_code: bool,
-    violation_severity_max_encountered: u8,
+    max_violation_severity: u8,
     custom_meta: &'a config::CustomMeta,
     violation_banners: Vec<ViolationBanner>,
     violations: ViolationsByBand,
@@ -795,7 +795,7 @@ fn build_report<'a>(
     let violation_banners = build_violation_banners(&by_band, &all_violations_payloads)?;
     let violations = build_violations_by_band(&by_band);
 
-    let violation_severity_max_encountered = collected_violations
+    let max_violation_severity = collected_violations
         .iter()
         .map(|v| v.severity)
         .max()
@@ -807,7 +807,7 @@ fn build_report<'a>(
         gitsnitch_version: env!("CARGO_PKG_VERSION"),
         git_range: generate_range_string(scope),
         violation_severity_as_exit_code: effective_violation_severity_as_exit_code,
-        violation_severity_max_encountered,
+        max_violation_severity,
         custom_meta,
         violation_banners,
         violations,
