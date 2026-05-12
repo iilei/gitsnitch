@@ -27,12 +27,10 @@ As [gitlint](https://github.com/jorisroovers/gitlint) is a well-known tool with 
 | Machine-readable output | 🟢 Yes | 🔴 No | gitsnitch emits structured JSON output suitable for CI parsing and policy gates. |
 | Severity signal survives pre-commit context | 🟢 Yes | 🔴 No | gitsnitch exposes the maximum encountered severity as `.max_violation_severity`, which is easy to consume in automation. |
 | Custom assertions | 🟢 Yes | 🟡 See comment | gitsnitch supports declarative assertions in config; gitlint custom rules are implemented via Python rule files. |
-| Team-owned assertion config | 🟢 Yes | 🟡 See comment | gitsnitch config can be handed over DRY via stdin or relative paths; gitlint team-level customization is possible but typically more involved. |
+| Team-owned assertion config | 🟢 Yes | 🟡 See comment | gitsnitch config can be handed over DRY via stdin or relative paths; with gitlint under pre-commit, custom Python rule file paths are not reliably portable because pre-commit executes gitlint from a different working context, which can break relative paths. |
 | Assertions using files_changed context | 🟢 Yes | 🔴 No | gitsnitch assertions can evaluate commit file-change context directly. |
 | Assertions using `diff_match`* context | 🟢 Yes | 🔴 No | gitsnitch supports path/line-aware diff matching via `diff_match_any` and `diff_match_none`. |
 | Branch naming conventions | 🟡 See comment | 🟢 Yes | gitsnitch does not enforce branch naming locally; teams commonly enforce this through server-side branch/push rules (GitHub/GitLab/Bitbucket). |
-
-*`diff_match_any` and `diff_match_none` let teams require or skip assertions based on which paths and lines changed in each commit diff.
 
 ---
 
