@@ -105,11 +105,11 @@ For commit-message checks, use the staged mode hook that resolves
 
 ```yaml
 repos:
-	- repo: https://github.com/iilei/gitsnitch
-		rev: v0.3.3
-		hooks:
-			- id: gitsnitch-commit-msg
-				args: [--config, .gitsnitchrc.toml, --commit-msg-source, auto]
+  - repo: https://github.com/iilei/gitsnitch
+    rev: v0.3.3
+    hooks:
+      - id: gitsnitch-commit-msg
+        args: [--config, .gitsnitchrc.toml, --commit-msg-source, auto]
 ```
 
 Run it manually:
@@ -122,11 +122,11 @@ Override the commit SHA as needed:
 
 ```yaml
 repos:
-	- repo: https://github.com/iilei/gitsnitch
-		rev: v0.3.3
-		hooks:
-			- id: gitsnitch-single-commit
-				args: [--commit-sha, 0123456789abcdef]
+  - repo: https://github.com/iilei/gitsnitch
+    rev: v0.3.3
+    hooks:
+      - id: gitsnitch-single-commit
+        args: [--commit-sha, 0123456789abcdef]
 ```
 
 ### For CI/CD pipelines
@@ -135,19 +135,19 @@ Lint a range of commits in a pull request:
 
 ```sh
 gitsnitch \
-	--source-ref "$GITHUB_HEAD_REF" \
-	--target-ref "origin/${GITHUB_BASE_REF}" \
-	--config .gitsnitch.toml \
-	--violation-severity-as-exit-code
+  --source-ref "$GITHUB_HEAD_REF" \
+  --target-ref "origin/${GITHUB_BASE_REF}" \
+  --config .gitsnitch.toml \
+  --violation-severity-as-exit-code
 ```
 
 Or lint via commit SHA with JSON output:
 
 ```sh
 gitsnitch \
-	--commit-sha "$CI_COMMIT_SHA" \
-	--config .gitsnitch.toml \
-	--output-format json-compact
+  --commit-sha "$CI_COMMIT_SHA" \
+  --config .gitsnitch.toml \
+  --output-format json-compact
 ```
 
 ---
@@ -303,8 +303,8 @@ gitsnitch --env-prefix CI_
 
 ```sh
 gitsnitch \
-	--remap-env-var GITSNITCH_SOURCE_REF=PRE_COMMIT_TO_REF \
-	--remap-env-var GITSNITCH_TARGET_REF=PRE_COMMIT_FROM_REF
+  --remap-env-var GITSNITCH_SOURCE_REF=PRE_COMMIT_TO_REF \
+  --remap-env-var GITSNITCH_TARGET_REF=PRE_COMMIT_FROM_REF
 ```
 
 **Remap rules:**
@@ -411,8 +411,8 @@ CI credentials must allow `git fetch` from `origin`.
 
 ```text
 machine github.com
-	login x-access-token
-	password ${GITHUB_TOKEN}
+  login x-access-token
+  password ${GITHUB_TOKEN}
 ```
 
 Without credentials, shallow autoheal fetches fail and gitsnitch returns an internal/runtime error (`251..255`).
