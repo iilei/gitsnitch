@@ -1,5 +1,4 @@
 [![codecov](https://codecov.io/gh/iilei/gitsnitch/branch/master/graph/badge.svg?token=TZ71OWC0AZ)](https://codecov.io/gh/iilei/gitsnitch)
-
 [![microsite](https://img.shields.io/badge/docs-gitsnitch.dev-blue?logo=readthedocs)](https://gitsnitch.dev/)
 
 # gitsnitch 🗡️🦆
