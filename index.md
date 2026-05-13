@@ -17,6 +17,20 @@ Think of it as a linter, but for commit hygiene - enforced consistently across e
 
 Source and issue tracker: [github.com/iilei/gitsnitch](https://github.com/iilei/gitsnitch)
 
+## Why
+
+Most commit linting stops at commit-message formatting.
+
+Real-world teams often need more:
+
+- policy-aware CI enforcement
+- severity-based gating
+- diff-aware assertions
+- portable shared rulesets
+- reliable behavior in shallow CI clones
+
+GitSnitch was built around those workflows.
+
 ## gitsnitch vs gitlint
 
 As [gitlint](https://github.com/jorisroovers/gitlint) is a well-known tool with a similar purpose, here is a brief comparison of gitsnitch and gitlint.
@@ -24,12 +38,12 @@ As [gitlint](https://github.com/jorisroovers/gitlint) is a well-known tool with 
 | Criterion | gitsnitch | gitlint | Comment |
 | --- | --- | --- | --- |
 | Automatic incremental unshallowing of shallow clones | 🟢 Yes | 🔴 No | gitsnitch can incrementally deepen shallow clones during history traversal when needed. |
-| Machine-readable output | 🟢 Yes | 🔴 No | gitsnitch emits structured JSON output suitable for CI parsing and policy gates. |
-| Severity signal survives pre-commit context | 🟢 Yes | 🔴 No | gitsnitch exposes the maximum encountered severity as `.max_violation_severity`, which is easy to consume in automation. |
+| Machine-readable JSON output | 🟢 Yes | 🔴 No | gitsnitch emits structured JSON output suitable for CI parsing and policy gates. |
+| Severity propagation into automation | 🟢 Yes | 🔴 No | gitsnitch exposes the maximum encountered severity as `.max_violation_severity`, which is easy to consume in automation. |
 | Custom assertions | 🟢 Yes | 🟡 See comment | gitsnitch supports declarative assertions in config; gitlint custom rules are implemented via Python rule files. |
-| Team-owned assertion config | 🟢 Yes | 🟡 See comment | gitsnitch config can be handed over DRY via stdin or relative paths; with gitlint under pre-commit, custom Python rule file paths are not reliably portable because pre-commit executes gitlint from a different working context, which can break relative paths. |
-| Assertions using files_changed context | 🟢 Yes | 🔴 No | gitsnitch assertions can evaluate commit file-change context directly. |
-| Assertions using `diff_match`* context | 🟢 Yes | 🔴 No | gitsnitch supports path/line-aware diff matching via `diff_match_any` and `diff_match_none`. |
+| Portable shared assertion config | 🟢 Yes | 🟡 See comment | gitsnitch config can be handed over DRY via stdin or relative paths; with gitlint under pre-commit, custom Python rule file paths are not reliably portable because pre-commit executes gitlint from a different working context, which can break relative paths. |
+| Assertions using file-change context | 🟢 Yes | 🔴 No | gitsnitch assertions can evaluate commit file-change context directly. |
+| Assertions using diff-aware matching | 🟢 Yes | 🔴 No | gitsnitch supports path/line-aware diff matching via `diff_match_any` and `diff_match_none`. |
 | Branch naming conventions | 🟡 See comment | 🟢 Yes | gitsnitch does not enforce branch naming locally; teams commonly enforce this through server-side branch/push rules (GitHub/GitLab/Bitbucket). |
 
 ---
@@ -58,7 +72,7 @@ Three hooks are available:
 | `gitsnitch-commit-msg` | `commit-msg`&nbsp;&nbsp; | Lints the staged commit message and index diff at commit time |
 | `gitsnitch-single-commit`&nbsp;&nbsp; | `manual` | Lints a single commit; supply `--commit-sha` via `args` |
 
-Requires **pre-commit ≥ 4.0.0**. The hooks are implemented in Rust (`language: rust`) and compiled once on first use — no separate install needed.
+Requires **pre-commit ≥ 4.0.0**. The hooks are implemented in Rust (`language: rust`) and compiled once on first use — no additional runtime dependencies required.
 
 ### Inspecting the highest severity encountered
 
@@ -175,3 +189,17 @@ The diagram below gives a quick map of the config model. Click it to open a full
   </div>
 </div>
 <!-- markdownlint-enable MD033 -->
+
+## Philosophy
+
+GitSnitch is intentionally designed around:
+
+- local developer ergonomics
+- centrally enforceable policies
+- machine-readable automation signals
+- incremental adoption instead of hard lock-in
+
+Or, put differently:
+
+***"commit often"*** is still encouraged —
+the duck just wants the history cleaned up before it reaches `main`.

@@ -1,5 +1,7 @@
 [![codecov](https://codecov.io/gh/iilei/gitsnitch/branch/master/graph/badge.svg?token=TZ71OWC0AZ)](https://codecov.io/gh/iilei/gitsnitch)
 
+[![microsite](https://img.shields.io/badge/docs-gitsnitch.dev-blue?logo=readthedocs)](https://gitsnitch.dev/)
+
 # gitsnitch 🗡️🦆
 
 ![duck with a knife](https://cdn.jsdelivr.net/gh/iilei/gitsnitch@master/gitsnitch_banner.png)
@@ -30,7 +32,6 @@ cargo binstall gitsnitch
 ```powershell
 choco install iilei.gitsnitch
 ```
-
 
 ### Verifying release signatures
 
@@ -419,7 +420,6 @@ Without credentials, shallow autoheal fetches fail and gitsnitch returns an inte
 
 </details>
 
-
 ## Contributing
 
 ```sh
@@ -447,10 +447,10 @@ Configured automation highlights:
 * `pre-push`: runs quality/security hooks and `make maintenance`
 * `post-commit`: runs `make generate-coverage`
 
-
 ---
 
 1) [prek quote](https://prek.j178.dev/):
+
 <blockquote>
 prek is a reimagined version of pre-commit, built in Rust. It is designed to be a faster, dependency-free and drop-in alternative for it, while also providing some additional long-requested features.
 </blockquote>
