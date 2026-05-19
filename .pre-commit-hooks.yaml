@@ -11,7 +11,7 @@
 - id: gitsnitch-commit-msg
   name: gitsnitch (commit-msg)
   description: Lint the staged commit message and index diff at commit time.
-  entry: gitsnitch --violation-severity-as-exit-code --validate-staged-commit --commit-msg-source auto
+  entry: gitsnitch --validate-staged-commit --commit-msg-source auto
   language: rust
   pass_filenames: false
   always_run: true
@@ -21,7 +21,7 @@
 - id: gitsnitch-single-commit
   name: gitsnitch (single commit)
   description: Lint a single commit; provide --commit-sha via args (manual stage).
-  entry: gitsnitch --violation-severity-as-exit-code
+  entry: gitsnitch
   language: rust
   pass_filenames: false
   always_run: true
