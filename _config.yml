@@ -5,3 +5,5 @@ highlighter: rouge
 kramdown:
   input: GFM
 permalink: pretty
+url: "https://iilei.github.io"
+baseurl: "/gitsnitch/"
