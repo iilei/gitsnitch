@@ -112,7 +112,7 @@ cargo binstall gitsnitch
 ### NuGet / Chocolatey (Windows)
 
 ```powershell
-choco install iilei-gitsnitch
+choco install gitsnitch
 ```
 
 ### Binary from releases
