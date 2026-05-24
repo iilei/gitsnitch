@@ -130,7 +130,7 @@ repo = "local"
 
 [[repos]]
 repo = "."
-rev = "7156dad74e32ca4c982abf67dda68adbbed09744"  # gitsnitch
+rev = "5ff35e7373433e8707b23182cb207ca94977cd7a" # frozen: v0.4.4
   [[repos.hooks]]
   args = [
     "--config",
