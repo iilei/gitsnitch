@@ -56,7 +56,7 @@ gitsnitch ships with [pre-commit](https://pre-commit.com) hooks out of the box. 
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/iilei/gitsnitch
-    rev: v0.4.5  # run pre-commit / prek with autoupdate --freeze to get the latest version
+    rev: v0.4.6  # run pre-commit / prek with autoupdate --freeze to get the latest version
     args:
       - --preset
       - conventional-commits

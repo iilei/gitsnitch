@@ -92,7 +92,7 @@ repos:
           - manual
           - pre-commit
   - repo: .
-    rev: 5ff35e7373433e8707b23182cb207ca94977cd7a
+    rev: a4efe6b249c1ed0309f1d290a2c0fcc594e15489  # frozen: v0.4.5
     hooks:
       - args:
           - --config

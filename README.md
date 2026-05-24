@@ -90,7 +90,7 @@ Example consumer config for push-range linting:
 ```yaml
 repos:
   - repo: https://github.com/iilei/gitsnitch
-    rev: v0.3.3
+    rev: v0.4.6
     hooks:
       - id: gitsnitch
 ```
@@ -106,7 +106,7 @@ For commit-message checks, use the staged mode hook that resolves
 ```yaml
 repos:
   - repo: https://github.com/iilei/gitsnitch
-    rev: v0.3.3
+    rev: v0.4.6
     hooks:
       - id: gitsnitch-commit-msg
         args: [--config, .gitsnitchrc.toml, --commit-msg-source, auto]
@@ -123,7 +123,7 @@ Override the commit SHA as needed:
 ```yaml
 repos:
   - repo: https://github.com/iilei/gitsnitch
-    rev: v0.3.3
+    rev: v0.4.6
     hooks:
       - id: gitsnitch-single-commit
         args: [--commit-sha, 0123456789abcdef]
