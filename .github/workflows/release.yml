@@ -320,4 +320,4 @@ jobs:
         continue-on-error: true
         uses: crazy-max/ghaction-chocolatey@v4
         with:
-          args: push out\choco\iilei.gitsnitch.${{ steps.resolve.outputs.version }}.nupkg --source https://push.chocolatey.org/ --api-key ${{ secrets.CHOCOLATEY_API_KEY }}
+          args: push out\choco\iilei-gitsnitch.${{ steps.resolve.outputs.version }}.nupkg --source https://push.chocolatey.org/ --api-key ${{ secrets.CHOCOLATEY_API_KEY }}
