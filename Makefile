@@ -7,6 +7,7 @@ JSONSCHEMA := $(shell [ -x "$(HOME)/.cargo/bin/jsonschema-cli" ] && echo "$(HOME
 PLANTUML := $(shell command -v plantuml 2>/dev/null || echo plantuml)
 SCHEMA_DOC := $(shell command -v generate-schema-doc 2>/dev/null || echo generate-schema-doc)
 JQ := $(shell command -v jq 2>/dev/null || echo jq)
+PREK := $(shell command -v prek 2>/dev/null || command -v pre-commit 2>/dev/null)
 
 ifeq ($(OS),Windows_NT)
 EXE_EXT := .exe
@@ -68,6 +69,7 @@ maintenance:
 	$(CARGO) machete
 	$(CARGO) deny check
 	$(CARGO) test --all-features
+	prek  autoupdate --freeze
 
 generate-coverage:
 	$(LLVM_COV) llvm-cov --all-features --workspace --lcov --output-path lcov.info

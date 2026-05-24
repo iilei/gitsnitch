@@ -1,0 +1,104 @@
+minimum_pre_commit_version: 4.0.0
+repos:
+  - repo: local
+    hooks:
+      - entry: cargo fmt
+        id: rust-fmt
+        language: system
+        name: rust fmt
+        pass_filenames: false
+        stages:
+          - manual
+          - pre-commit
+      - entry: cargo check --all-targets --all-features
+        id: rust-check
+        language: system
+        name: cargo check
+        pass_filenames: false
+        stages:
+          - manual
+          - pre-commit
+      - entry: cargo clippy --all-targets --all-features -- -D warnings
+        id: rust-clippy
+        language: system
+        name: rust clippy
+        pass_filenames: false
+        stages:
+          - manual
+          - pre-push
+      - entry: cargo test --all-features
+        id: rust-tests
+        language: system
+        name: rust tests
+        pass_filenames: false
+        stages:
+          - manual
+          - pre-push
+      - entry: cargo audit
+        id: rust-audit
+        language: system
+        name: cargo audit (security)
+        pass_filenames: false
+        stages:
+          - manual
+          - pre-push
+      - entry: cargo deny check
+        id: rust-deny
+        language: system
+        name: cargo deny (licenses/bans/advisories)
+        pass_filenames: false
+        stages:
+          - manual
+          - pre-push
+      - entry: make maintenance
+        id: maintenance
+        language: system
+        name: make maintenance
+        pass_filenames: false
+        stages:
+          - manual
+          - pre-push
+      - entry: make generate-coverage
+        id: generate-coverage
+        language: system
+        name: make generate-coverage
+        pass_filenames: false
+        stages:
+          - manual
+          - post-commit
+      - entry: cargo machete
+        id: rust-machete
+        language: system
+        name: cargo machete (unused deps)
+        pass_filenames: false
+        stages:
+          - manual
+      - entry: make fmt-json
+        files: docs/api_design/.*\.json$
+        id: json-fmt
+        language: system
+        name: format JSON files
+        pass_filenames: false
+        stages:
+          - manual
+          - pre-commit
+      - entry: make update-api-design-svg
+        files: docs/api_design/api_design\.plantuml$
+        id: api-design-svg
+        language: system
+        name: regenerate API design diagram
+        pass_filenames: false
+        stages:
+          - manual
+          - pre-commit
+  - repo: .
+    rev: 5ff35e7373433e8707b23182cb207ca94977cd7a
+    hooks:
+      - args:
+          - --config
+          - .gitsnitchrc.toml
+        id: gitsnitch-commit-msg
+      - args:
+          - --config
+          - .gitsnitchrc.toml
+        id: gitsnitch
