@@ -165,37 +165,12 @@ legend right
   skinparam LegendBackgroundColor transparent
   skinparam LegendBorderColor transparent
   skinparam backgroundColor transparent
-  hide stereotype
-
-
-  ' -class ProtectedSample << (C,#F6C344) >> {
-  '   - {field} subject: string
-  ' }
-
-  +class PublicSample << (C,#F6C344) >>  {
-    + {field} format: enum["json", "plain"] <b>"plain"</b>
-  }
-
-  legend left
-  |= Symbol |= Meaning |
-  | ProtectedSample | inferred field |
-  | PublicSample | user defined field |
-  endlegend
-
-
-}}
-
-{{
-  scale 0.75
-  skinparam LegendBackgroundColor transparent
-  skinparam LegendBorderColor transparent
-  skinparam backgroundColor transparent
 
 
   legend right
   |= Term |= Description |= Example |
   | patterns | list of regular expressions (compiled via the `regex` crate) | <font:monospaced> ["(?i:fix\|feat).*"]</font> |
-  | CustomMeta | custom metadata | <font:monospaced> {"usermeta__git_source": "git.xyz.example.com/team/adr-1337"}</font> |
+  | CustomMeta | custom metadata | <font:monospaced> {"git_source": "git.xyz.example.com/team/adr-1337"}</font> |
   | Jinja2 template (MiniJinja) | string evaluated as a Jinja2 template with violation context | <font:monospaced> Violations:</font>\n<font:monospaced> {%- for v in violations %}</font>\n<font:monospaced> {{ v.text }}</font>\n<font:monospaced> {%- endfor %}</font> |
   endlegend
 
