@@ -69,7 +69,7 @@ maintenance:
 	$(CARGO) machete
 	$(CARGO) deny check
 	$(CARGO) test --all-features
-	prek  autoupdate --freeze
+	prek autoupdate --freeze
 
 generate-coverage:
 	$(LLVM_COV) llvm-cov --all-features --workspace --lcov --output-path lcov.info
