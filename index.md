@@ -44,7 +44,7 @@ As [gitlint](https://github.com/jorisroovers/gitlint) is a well-known tool with 
 | Portable shared assertion config | 🟢 Yes | 🟡 See comment | gitsnitch config can be handed over DRY via stdin or relative paths; with gitlint under pre-commit, custom Python rule file paths are not reliably portable because pre-commit executes gitlint from a different working context, which can break relative paths. |
 | Assertions using file-change context | 🟢 Yes | 🔴 No | gitsnitch assertions can evaluate commit file-change context directly. |
 | Assertions using diff-aware matching | 🟢 Yes | 🔴 No | gitsnitch supports path/line-aware diff matching via `diff_match_any` and `diff_match_none`. |
-| Branch naming conventions | 🟡 See comment | 🟢 Yes | gitsnitch does not enforce branch naming locally; teams commonly enforce this through server-side branch/push rules (GitHub/GitLab/Bitbucket). |
+| Branch naming conventions | 🔴 See comment | 🟢 Yes | gitsnitch does not enforce branch naming locally; teams commonly enforce this through server-side branch/push rules (GitHub/GitLab/Bitbucket). |
 
 ---
 

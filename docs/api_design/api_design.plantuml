@@ -138,10 +138,6 @@ Scope by mode:
 - line: <b>patterns</b> matches changed lines
 end note
 
-class BranchMatchCondition << (C,#F6C344) >> {
-  + {field} type: BranchMatchConditionType
-  + {field} patterns: list[string]
-}
 
 class ThresholdCondition << (C,#F6C344) >> {
   + {field} type: ThresholdConditionType
@@ -156,7 +152,6 @@ ConditionContainer "1" *--* "1" Condition
 Condition <|-l- MessageCondition
 Condition <|-r- DiffMatchCondition
 Condition <|-d- ThresholdCondition
-Condition <|-- BranchMatchCondition
 
 legend right
 <b>Legend</b>
