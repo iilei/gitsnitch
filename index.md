@@ -61,15 +61,35 @@ You decide whether a rule should merely make the duck honk—or stop the pipelin
 
 Not every rule should immediately fail a build.
 
-gitsnitch uses configurable exit codes, allowing teams to introduce policies gradually.
+gitsnitch can return the highest violation severity as the process exit code.
 
 For example:
 
-```yaml
-exit_code_threshold: 10
+```bash
+gitsnitch \
+	--output-format json \
+	--violation-severity-as-exit-code \
+	--remap-env-var GITSNITCH_SOURCE_REF=PRE_COMMIT_TO_REF \
+	--remap-env-var GITSNITCH_TARGET_REF=PRE_COMMIT_FROM_REF
 ```
 
-can initially report findings without interrupting development.
+In GitLab merge request pipelines, you can remap directly from MR environment variables:
+
+```bash
+gitsnitch \
+	--output-format json \
+	--violation-severity-as-exit-code \
+	--remap-env-var GITSNITCH_SOURCE_REF=CI_MERGE_REQUEST_SOURCE_BRANCH_NAME \
+	--remap-env-var GITSNITCH_TARGET_REF=CI_MERGE_REQUEST_TARGET_BRANCH_NAME
+```
+
+In CI/CD, compare that exit code against your own threshold policy.
+
+If you prefer explicit JSON checks, read `max_violation_severity` directly:
+
+```bash
+gitsnitch --output-format json ... | jq '.max_violation_severity'
+```
 
 As adoption matures, the threshold can be adjusted until policies become part of the normal engineering workflow.
 
