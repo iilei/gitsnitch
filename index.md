@@ -7,29 +7,84 @@ title: GitSnitch
 [![GitHub](https://img.shields.io/badge/GitHub-iilei%2Fgitsnitch-blue?logo=github)](https://github.com/iilei/gitsnitch)
 [![GitHub Stars](https://img.shields.io/github/stars/iilei/gitsnitch?style=social)](https://github.com/iilei/gitsnitch/stargazers)
 
+<!-- BEGIN SHARED:core -->
 # gitsnitch 🗡️🦆
 
 ![duck with a knife](https://cdn.jsdelivr.net/gh/iilei/gitsnitch@master/gitsnitch_banner.png)
 
-**Lints your Git commit history against a declarative ruleset** - locally as a pre-commit/pre-push hook, or in any CI/CD pipeline.
+> **Move from observation to enforcement — one exit code at a time.**
 
-Think of it as a linter, but for commit hygiene - enforced consistently across every author and every environment.
+gitsnitch is a declarative policy engine for Git repositories.
 
-Source and issue tracker: [github.com/iilei/gitsnitch](https://github.com/iilei/gitsnitch)
+It helps teams introduce and enforce repository standards incrementally—whether through local hooks, CI pipelines or GitOps workflows.
 
-## Why
+Unlike traditional Git linters, gitsnitch is designed around gradual adoption. Policies can begin as observations, evolve into warnings and eventually become enforced engineering standards without changing the workflow.
 
-Most commit linting stops at commit-message formatting.
+---
 
-Real-world teams often need more:
+## Why?
 
-- policy-aware CI enforcement
-- severity-based gating
-- diff-aware assertions
-- portable shared rulesets
-- reliable behavior in shallow CI clones
+Repository standards rarely emerge all at once.
 
-GitSnitch was built around those workflows.
+Teams grow.
+
+Repositories evolve.
+
+New contributors join.
+
+Automation gets introduced.
+
+Eventually, organizations want to make certain conventions explicit—not because existing history is "wrong", but because consistent history becomes increasingly valuable over time.
+
+gitsnitch provides a declarative way to express those conventions and integrate them into existing development workflows.
+
+---
+
+## Philosophy
+
+GitSnitch is intentionally designed around:
+
+- local developer ergonomics
+- centrally enforceable policies
+- machine-readable automation signals
+- incremental adoption instead of hard lock-in
+
+Or, put differently:
+
+**"Commit often."** remains excellent advice.
+
+You decide whether a rule should merely make the duck honk—or stop the pipeline.
+
+---
+
+## Progressive enforcement
+
+Not every rule should immediately fail a build.
+
+gitsnitch uses configurable exit codes, allowing teams to introduce policies gradually.
+
+For example:
+
+```yaml
+exit_code_threshold: 10
+```
+
+can initially report findings without interrupting development.
+
+As adoption matures, the threshold can be adjusted until policies become part of the normal engineering workflow.
+
+**Move from observation to enforcement—one exit code at a time.**
+
+---
+
+## In other words &hellip;
+
+- policy-as-code for commit history
+- repository governance for Git
+- engineering standards that travel with every repository
+
+Not solely another linter.
+<!-- END SHARED:core -->
 
 ## gitsnitch vs gitlint
 
@@ -189,17 +244,3 @@ The diagram below gives a quick map of the config model. Click it to open a full
   </div>
 </div>
 <!-- markdownlint-enable MD033 -->
-
-## Philosophy
-
-GitSnitch is intentionally designed around:
-
-- local developer ergonomics
-- centrally enforceable policies
-- machine-readable automation signals
-- incremental adoption instead of hard lock-in
-
-Or, put differently:
-
-***"commit often"*** is still encouraged —
-the duck just wants the history cleaned up before it reaches `main`.

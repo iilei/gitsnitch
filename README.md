@@ -1,13 +1,84 @@
 [![codecov](https://codecov.io/gh/iilei/gitsnitch/branch/master/graph/badge.svg?token=TZ71OWC0AZ)](https://codecov.io/gh/iilei/gitsnitch)
 [![microsite](https://img.shields.io/badge/docs-iilei.github.io/gitsnitch-blue?logo=readthedocs)](https://iilei.github.io/gitsnitch)
 
+<!-- BEGIN SHARED:core -->
 # gitsnitch 🗡️🦆
 
 ![duck with a knife](https://cdn.jsdelivr.net/gh/iilei/gitsnitch@master/gitsnitch_banner.png)
 
-**Lints your Git commit history against a declarative ruleset** — locally as a pre-commit/pre-push hook, or in any CI/CD pipeline.
+> **Move from observation to enforcement — one exit code at a time.**
 
-Think of it as a linter, but for commit hygiene — enforced consistently across every author and every environment.
+gitsnitch is a declarative policy engine for Git repositories.
+
+It helps teams introduce and enforce repository standards incrementally—whether through local hooks, CI pipelines or GitOps workflows.
+
+Unlike traditional Git linters, gitsnitch is designed around gradual adoption. Policies can begin as observations, evolve into warnings and eventually become enforced engineering standards without changing the workflow.
+
+---
+
+## Why?
+
+Repository standards rarely emerge all at once.
+
+Teams grow.
+
+Repositories evolve.
+
+New contributors join.
+
+Automation gets introduced.
+
+Eventually, organizations want to make certain conventions explicit—not because existing history is "wrong", but because consistent history becomes increasingly valuable over time.
+
+gitsnitch provides a declarative way to express those conventions and integrate them into existing development workflows.
+
+---
+
+## Philosophy
+
+GitSnitch is intentionally designed around:
+
+- local developer ergonomics
+- centrally enforceable policies
+- machine-readable automation signals
+- incremental adoption instead of hard lock-in
+
+Or, put differently:
+
+**"Commit often."** remains excellent advice.
+
+You decide whether a rule should merely make the duck honk—or stop the pipeline.
+
+---
+
+## Progressive enforcement
+
+Not every rule should immediately fail a build.
+
+gitsnitch uses configurable exit codes, allowing teams to introduce policies gradually.
+
+For example:
+
+```yaml
+exit_code_threshold: 10
+```
+
+can initially report findings without interrupting development.
+
+As adoption matures, the threshold can be adjusted until policies become part of the normal engineering workflow.
+
+**Move from observation to enforcement—one exit code at a time.**
+
+---
+
+## In other words &hellip;
+
+- policy-as-code for commit history
+- repository governance for Git
+- engineering standards that travel with every repository
+
+Not solely another linter.
+<!-- END SHARED:core -->
 
 ---
 
@@ -97,8 +168,8 @@ repos:
 
 The `gitsnitch` hook remaps pre-commit's push refs automatically:
 
-* `PRE_COMMIT_TO_REF` -> `GITSNITCH_SOURCE_REF`
-* `PRE_COMMIT_FROM_REF` -> `GITSNITCH_TARGET_REF`
+- `PRE_COMMIT_TO_REF` -> `GITSNITCH_SOURCE_REF`
+- `PRE_COMMIT_FROM_REF` -> `GITSNITCH_TARGET_REF`
 
 For commit-message checks, use the staged mode hook that resolves
 `COMMIT_EDITMSG` internally and does not rely on passed filenames:
@@ -156,10 +227,10 @@ gitsnitch \
 
 Apply assertion bundles with `--preset` flags (repeatable):
 
-* `conventional-commits` — enforce [Conventional Commits](https://www.conventionalcommits.org/)
-* `title-body-separator` — require blank line between title and body
-* `forbid-wip` — block WIP/DO NOT MERGE patterns
-* `security-related-edits-mention` — require explicit mention of security in certain commit types
+- `conventional-commits` — enforce [Conventional Commits](https://www.conventionalcommits.org/)
+- `title-body-separator` — require blank line between title and body
+- `forbid-wip` — block WIP/DO NOT MERGE patterns
+- `security-related-edits-mention` — require explicit mention of security in certain commit types
 
 **Examples:**
 
@@ -171,14 +242,14 @@ gitsnitch --preset conventional-commits --preset forbid-wip --commit-sha <sha>
 
 ## Core Features
 
-* **Message rules** — regex patterns on commit title, body, or full message
-* **Diff rules** — restrict file paths, detect forbidden line patterns, enforce line-count thresholds
-* **Context-aware skipping** — skip rules conditionally (e.g., on maintenance branches)
-* **Severity bands** — map severity 0–250 to `Information`, `Warning`, `Error`, `Fatal`
-* **Exit code mapping** — optionally map violation severity to exit code for CI automation
-* **Shallow clone healing** — auto-deepen shallow CI checkouts
-* **Remediation hints** — customizable Jinja2 banner templates per rule
-* **Config autodiscovery** — find `.gitsnitch.toml`, `.gitsnitchrc`, `.gitsnitch.json`, etc., automatically
+- **Message rules** — regex patterns on commit title, body, or full message
+- **Diff rules** — restrict file paths, detect forbidden line patterns, enforce line-count thresholds
+- **Context-aware skipping** — skip rules conditionally (e.g., on maintenance branches)
+- **Severity bands** — map severity 0–250 to `Information`, `Warning`, `Error`, `Fatal`
+- **Exit code mapping** — optionally map violation severity to exit code for CI automation
+- **Shallow clone healing** — auto-deepen shallow CI checkouts
+- **Remediation hints** — customizable Jinja2 banner templates per rule
+- **Config autodiscovery** — find `.gitsnitch.toml`, `.gitsnitchrc`, `.gitsnitch.json`, etc., automatically
 
 ---
 
@@ -189,20 +260,20 @@ Presets provide assertion bundles (with optional assertion-level `banner` and `h
 
 **Rules:**
 
-* Presets contain assertions only — no root-level `history`, `severity_bands`, or global switches
-* Embedded at build-time from snake_case files
-* Runtime names use dash-case (e.g., `conventional-commits`)
-* Selected presets append to config assertions
-* Assertion aliases must be globally unique; duplicates fail as a config error
+- Presets contain assertions only — no root-level `history`, `severity_bands`, or global switches
+- Embedded at build-time from snake_case files
+- Runtime names use dash-case (e.g., `conventional-commits`)
+- Selected presets append to config assertions
+- Assertion aliases must be globally unique; duplicates fail as a config error
 
 **Authoring custom presets:**
 
 Use the embedded preset files as templates:
 
-* [src/presets_data/conventional_commits.toml](src/presets_data/conventional_commits.toml)
-* [src/presets_data/title_body_separator.toml](src/presets_data/title_body_separator.toml)
-* [src/presets_data/forbid_wip.toml](src/presets_data/forbid_wip.toml)
-* [src/presets_data/security_related_edits_mention.toml](src/presets_data/security_related_edits_mention.toml)
+- [src/presets_data/conventional_commits.toml](src/presets_data/conventional_commits.toml)
+- [src/presets_data/title_body_separator.toml](src/presets_data/title_body_separator.toml)
+- [src/presets_data/forbid_wip.toml](src/presets_data/forbid_wip.toml)
+- [src/presets_data/security_related_edits_mention.toml](src/presets_data/security_related_edits_mention.toml)
 
 Copy and adapt assertion blocks into your shared config file for project-local customization.
 
@@ -287,10 +358,10 @@ gitsnitch --env-prefix GITSNITCH_CUSTOM_NAMESPACE_
 
 Canonical keys (default prefix `GITSNITCH_`):
 
-* `GITSNITCH_CONFIG_ROOT` — where to search for config file
-* `GITSNITCH_COMMIT_SHA` — commit to lint
-* `GITSNITCH_SOURCE_REF` — source branch (for range linting)
-* `GITSNITCH_TARGET_REF` — target branch (for range linting)
+- `GITSNITCH_CONFIG_ROOT` — where to search for config file
+- `GITSNITCH_COMMIT_SHA` — commit to lint
+- `GITSNITCH_SOURCE_REF` — source branch (for range linting)
+- `GITSNITCH_TARGET_REF` — target branch (for range linting)
 
 **Change the prefix:**
 
@@ -309,11 +380,11 @@ gitsnitch \
 
 **Remap rules:**
 
-* Format: `KEY=ENV_VAR`
-* `ENV_VAR` must be non-empty
-* A key can only be remapped once
-* For a remapped key, only the remapped env var is read (no fallback)
-* `--remap-env-var` is mutually exclusive with non-default `--env-prefix`
+- Format: `KEY=ENV_VAR`
+- `ENV_VAR` must be non-empty
+- A key can only be remapped once
+- For a remapped key, only the remapped env var is read (no fallback)
+- `--remap-env-var` is mutually exclusive with non-default `--env-prefix`
 
 </details>
 
@@ -328,14 +399,14 @@ gitsnitch reserves exit codes `251..255` for internal/runtime failures.
 
 Violation exit behavior is controlled by `violation_severity_as_exit_code`:
 
-* `false` (default): violations are reported, exit is `0`
-* `true`: exit code is the maximum violating assertion severity (0–250)
+- `false` (default): violations are reported, exit is `0`
+- `true`: exit code is the maximum violating assertion severity (0–250)
 
 **Examples:**
 
-* violations `{100, 200}` with mode `true` → exit `200`
-* violations `{0, 0}` with mode `true` → exit `0`
-* any violations with mode `false` → exit `0`
+- violations `{100, 200}` with mode `true` → exit `200`
+- violations `{0, 0}` with mode `true` → exit `0`
+- any violations with mode `false` → exit `0`
 
 **CLI override:**
 
@@ -403,9 +474,9 @@ CI credentials must allow `git fetch` from `origin`.
 
 **Common setups:**
 
-* CI-native checkout token persisted for later fetches
-* Git credential helper configured in the runner
-* Optional `.netrc` file
+- CI-native checkout token persisted for later fetches
+- Git credential helper configured in the runner
+- Optional `.netrc` file
 
 **Example `.netrc`:**
 
@@ -443,8 +514,8 @@ prek install --hook-type post-commit
 
 Configured automation highlights:
 
-* `pre-push`: runs quality/security hooks and `make maintenance`
-* `post-commit`: runs `make generate-coverage`
+- `pre-push`: runs quality/security hooks and `make maintenance`
+- `post-commit`: runs `make generate-coverage`
 
 ---
 

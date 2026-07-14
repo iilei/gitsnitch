@@ -18,7 +18,7 @@ endif
 BIN_DIR := bin
 BIN_PATH := $(BIN_DIR)/$(BIN_NAME)$(EXE_EXT)
 
-.PHONY: help local build test clippy fmt check quality clean install-tools validate-examples update-api-design-svg update-api-schema-md fmt-json docs maintenance generate-coverage site-serve
+.PHONY: help local build test clippy fmt check quality clean install-tools validate-examples update-api-design-svg update-api-schema-md fmt-json docs maintenance generate-coverage site-serve sync-docs
 
 help:
 	@echo "Targets:"
@@ -38,6 +38,7 @@ help:
 	@echo "  update-api-design-svg - regenerate docs/api_design/api_design.svg from PlantUML"
 	@echo "  update-api-schema-md - generate Markdown documentation from JSON schema"
 	@echo "  fmt-json  - prettify JSON files (schema and example)"
+	@echo "  sync-docs - sync shared markdown sections into README.md and index.md"
 	@echo "  site-serve - serve the Jekyll site locally on http://localhost:4000"
 
 local: fmt clippy test build
@@ -95,6 +96,9 @@ fmt-json:
 	$(JQ) --indent 2 . docs/api_design/api_v1.schema.json > /tmp/schema.tmp && mv /tmp/schema.tmp docs/api_design/api_v1.schema.json
 	$(JQ) --indent 2 . docs/api_design/api_v1.example.json > /tmp/example.tmp && mv /tmp/example.tmp docs/api_design/api_v1.example.json
 	@echo "JSON files formatted"
+
+sync-docs:
+	sh scripts/sync-docs.sh
 
 site-serve:
 	docker run --rm -it \

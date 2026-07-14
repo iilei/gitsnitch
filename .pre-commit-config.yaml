@@ -66,6 +66,15 @@ repos:
         stages:
           - manual
           - post-commit
+      - entry: make sync-docs
+        id: make-sync-docs
+        language: system
+        name: make sync-docs
+        pass_filenames: false
+        always_run: true
+        stages:
+          - pre-commit
+          - manual
       - entry: cargo machete
         id: rust-machete
         language: system
@@ -92,13 +101,18 @@ repos:
           - manual
           - pre-commit
   - repo: .
-    rev: a4efe6b249c1ed0309f1d290a2c0fcc594e15489  # frozen: v0.4.5
+    rev: 4e1b583317d2a528b8fe7404a4e3adc7ec015758  # frozen: v0.5.0
     hooks:
       - args:
           - --config
           - .gitsnitchrc.toml
+          - --no-violation-severity-as-exit-code
         id: gitsnitch-commit-msg
+        stages:
+          - manual
       - args:
           - --config
           - .gitsnitchrc.toml
         id: gitsnitch
+        verbose: true
+        entry: gitsnitch --no-violation-severity-as-exit-code --remap-env-var GITSNITCH_SOURCE_REF=PRE_COMMIT_TO_REF --remap-env-var GITSNITCH_TARGET_REF=PRE_COMMIT_FROM_REF
